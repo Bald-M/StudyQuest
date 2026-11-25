@@ -1,30 +1,34 @@
 # StudyQuest
 
-> 开发中，尚未发布可用版本。
+English | [简体中文](README.zh-CN.md)
 
-StudyQuest 是一个原生 macOS 学习应用，把一条"从 0 到能就业"的 10 阶段学习路线变成每日任务：
+> Work in progress. No usable release yet.
 
-- 按固定间隔排期记忆卡片和错题复习；
-- 作业、周测、阶段考试，考够分数才解锁下一阶段；
-- 经验值、等级、连续学习天数；
-- 判卷由应用内配置的 AI 服务完成（OpenAI 兼容接口或 Anthropic 接口）；
-- 内置 MCP 服务（stdio），让 Claude Code 等 AI 助手读写进度、出题录题。
+StudyQuest is a native macOS study app that turns a 10-stage, zero-to-job-ready learning roadmap into daily tasks:
 
-设计与实现计划见 [`docs/superpowers`](docs/superpowers)。
+- Spaced-repetition review for flashcards and missed questions;
+- Assignments, weekly quizzes, and stage exams — pass the exam to unlock the next stage;
+- XP, levels, and study streaks;
+- Grading by an AI provider configured in the app (OpenAI-compatible or Anthropic API);
+- A built-in MCP server (stdio) so AI assistants such as Claude Code can read and update progress and create questions.
 
-## 环境
+## Requirements
 
-- macOS 14 及以上
-- Swift 6（只需 Command Line Tools，不依赖 Xcode）
+- macOS 14 or later
+- Swift 6 (Command Line Tools are enough; Xcode is not required)
 
-## 构建
+## Build
 
 ```bash
 swift build
 swift test
-./scripts/bundle-app.sh   # 打包成 build/StudyQuest.app
+./scripts/bundle-app.sh   # packages build/StudyQuest.app
 ```
 
-## 许可证
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Changes are recorded in [CHANGELOG.md](CHANGELOG.md).
+
+## License
 
 [GPL-3.0](LICENSE)
