@@ -27,7 +27,7 @@ struct InterviewView: View {
             HStack {
                 Text("模拟面试").font(.title3.bold())
                 if let recentAverage {
-                    Text("最近 \(recentCount) 场平均 \(Int(recentAverage.rounded())) 分").font(.caption).foregroundStyle(.secondary)
+                    Text("最近 \(recentCount) 场平均 \(NumberText.whole(recentAverage)) 分").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -70,7 +70,7 @@ struct InterviewView: View {
     private func resultBox(_ score: Double, _ interview: MockInterview) -> some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 6) {
-                Text("\(Int(score.rounded())) 分").font(.largeTitle.bold())
+                Text("\(NumberText.whole(score)) 分").font(.largeTitle.bold())
                 if let feedback = interview.feedback { Text(feedback).textSelection(.enabled) }
                 if let grader = interview.grader { Text("评分模型：\(grader)").font(.caption).foregroundStyle(.secondary) }
             }

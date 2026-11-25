@@ -43,11 +43,7 @@ public enum PromptCatalog {
 
     private static func percent(_ ratio: Double) -> String { "\(whole(ratio * 100))%" }
 
-    /// 四舍五入成整数文本；数值越界或非有限时原样输出，避免 Int 转换崩溃（过关线可被 update_stage_settings 改成任意数）。
-    private static func whole(_ value: Double) -> String {
-        let rounded = value.rounded()
-        return abs(rounded) < 1e15 ? String(Int(rounded)) : String(value)
-    }
+    private static func whole(_ value: Double) -> String { NumberText.whole(value) }
 
     private static func stageExam(stageIndex: Int, store: StudyStore) throws -> String {
         let stage = try store.stage(stageIndex)

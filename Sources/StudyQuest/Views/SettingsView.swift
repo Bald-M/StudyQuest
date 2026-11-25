@@ -196,11 +196,13 @@ struct SettingsView: View {
         Binding(get: { state.wrappedValue }, set: { state.wrappedValue = $0; write(key, String($0)) })
     }
 
-    private func run(_ body: () throws -> Void) {
+    @discardableResult private func run(_ body: () throws -> Void) -> Bool {
         do {
             try body()
+            return true
         } catch {
             message = "出错了：\(error.displayText)"
+            return false
         }
     }
 }
@@ -246,7 +248,8 @@ private struct MCPSection: View {
 
 private struct StageSettingsRow: View {
     let stage: Stage
-    let onSave: (_ passLine: Double?, _ cooldownDays: Int?, _ reward: String?) -> Void
+    /// 返回是否保存成功；失败时（如过关线超出 1–100）输入框恢复为当前值，错误由 SettingsView 顶部显示。
+    let onSave: (_ passLine: Double?, _ cooldownDays: Int?, _ reward: String?) -> Bool
 
     @State private var passLine: Double = 0
     @State private var reward = ""
@@ -256,13 +259,13 @@ private struct StageSettingsRow: View {
             HStack {
                 TextField("过关线", value: $passLine, format: .number)
                     .frame(width: 50)
-                    .onSubmit { onSave(passLine, nil, nil) }
+                    .onSubmit { if !onSave(passLine, nil, nil) { sync() } }
                 Text("%")
                 Stepper("冷却 \(stage.cooldownDays) 天", value: Binding(
-                    get: { stage.cooldownDays }, set: { onSave(nil, $0, nil) }), in: 3...7)
+                    get: { stage.cooldownDays }, set: { _ = onSave(nil, $0, nil) }), in: 3...7)
                 TextField("奖励", text: $reward)
                     .frame(minWidth: 120)
-                    .onSubmit { onSave(nil, nil, reward) }
+                    .onSubmit { if !onSave(nil, nil, reward) { sync() } }
             }
             .labelsHidden()
         } label: {

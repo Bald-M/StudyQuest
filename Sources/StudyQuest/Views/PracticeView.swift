@@ -44,7 +44,7 @@ struct PracticeView: View {
                 }
                 Spacer()
                 if let percent = item.lastPercent {
-                    Text("\(Int(percent.rounded())) 分").foregroundStyle(.secondary)
+                    Text("\(NumberText.whole(percent)) 分").foregroundStyle(.secondary)
                 }
                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
             }

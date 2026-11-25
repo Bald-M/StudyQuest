@@ -42,7 +42,7 @@ struct MistakesView: View {
                     .disabled(item.mistake.dueDay > today)
             }
             HStack(spacing: 12) {
-                Text(item.lastPercent.map { "上次得分 \(Int($0.rounded()))%" } ?? "尚未重做")
+                Text(item.lastPercent.map { "上次得分 \(NumberText.whole($0))%" } ?? "尚未重做")
                 Text("下次 \(item.mistake.dueDay.rawValue)")
                 Text("连续答对 \(item.mistake.streak) 次")
             }

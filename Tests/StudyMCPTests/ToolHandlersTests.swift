@@ -161,6 +161,14 @@ private func int(_ value: JSONValue?) -> Int64? {
         #expect(rows.allSatisfy { if case .object(let o) = $0 { o["prompt"] == .string("再错一次的题") } else { false } })
     }
 
+    @Test func updateStageSettingsRejectsBadPassLine() throws {
+        let (handlers, store) = try makeHandlers()
+        let result = handlers.call(name: "update_stage_settings", arguments: ["stage_index": .number(0), "pass_line": .number(1e300)])
+        #expect(result.isError)
+        #expect(result.text.contains("过关线"))
+        #expect(try store.stage(0).passLine == 80)
+    }
+
     @Test func unknownToolIsError() throws {
         let (handlers, _) = try makeHandlers()
         #expect(handlers.call(name: "nope", arguments: [:]).isError)

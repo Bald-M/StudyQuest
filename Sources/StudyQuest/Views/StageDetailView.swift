@@ -67,7 +67,7 @@ struct StageDetailView: View {
             Text(stage.summary)
             LabeledContent("预计时间", value: stage.estimatedWeeks)
             LabeledContent("过关规则") {
-                Text("总分 ≥ \(Int(stage.passLine))，每个分区 ≥ \(percent(stage.minSectionRatio))%，累积题占 \(percent(stage.cumulativeMin))%–\(percent(stage.cumulativeMax))%")
+                Text("总分 ≥ \(NumberText.whole(stage.passLine))，每个分区 ≥ \(percent(stage.minSectionRatio))%，累积题占 \(percent(stage.cumulativeMin))%–\(percent(stage.cumulativeMax))%")
                     .multilineTextAlignment(.trailing)
             }
             LabeledContent("未通过后冷却", value: "\(stage.cooldownDays) 天")
@@ -77,7 +77,7 @@ struct StageDetailView: View {
         }
     }
 
-    private func percent(_ ratio: Double) -> Int { Int((ratio * 100).rounded()) }
+    private func percent(_ ratio: Double) -> String { NumberText.whole(ratio * 100) }
 
     // MARK: 模块
 
@@ -192,7 +192,7 @@ struct StageDetailView: View {
         case .inProgress: "作答中"
         case .submitted: "已交卷，待判卷"
         case .graded:
-            "\(Int((attempt.totalPercent ?? 0).rounded())) 分 · \(attempt.passed == true ? "通过" : "未通过")"
+            "\(NumberText.whole(attempt.totalPercent ?? 0)) 分 · \(attempt.passed == true ? "通过" : "未通过")"
         }
     }
 

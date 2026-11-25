@@ -90,7 +90,7 @@ struct ExamsView: View {
         switch attempt.status {
         case .inProgress: return "作答中"
         case .submitted: return "已交卷，待判卷"
-        case .graded: return "\(Int((attempt.totalPercent ?? 0).rounded())) 分 · \(attempt.passed == true ? "通过" : "未通过")"
+        case .graded: return "\(NumberText.whole(attempt.totalPercent ?? 0)) 分 · \(attempt.passed == true ? "通过" : "未通过")"
         }
     }
 
@@ -122,7 +122,7 @@ struct ExamsView: View {
                 if scored.isEmpty {
                     Text("还没有打分的面试").foregroundStyle(.secondary)
                 } else {
-                    Text("最近 \(scored.count) 场平均 \(Int((scored.reduce(0, +) / Double(scored.count)).rounded())) 分")
+                    Text("最近 \(scored.count) 场平均 \(NumberText.whole(scored.reduce(0, +) / Double(scored.count))) 分")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -133,7 +133,7 @@ struct ExamsView: View {
                     HStack {
                         Text(interview.createdAt.formatted(date: .abbreviated, time: .shortened))
                         Spacer()
-                        Text(interview.score.map { "\(Int($0.rounded())) 分" } ?? "未打分").foregroundStyle(.secondary)
+                        Text(interview.score.map { "\(NumberText.whole($0)) 分" } ?? "未打分").foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)
@@ -204,8 +204,8 @@ private struct StartConfirmation: View {
     }
 
     private var passRule: String {
-        let section = Int((group.stage.minSectionRatio * 100).rounded())
-        let line = row.exam.kind == .stageExam ? Int(group.stage.passLine) : 75
+        let section = NumberText.whole(group.stage.minSectionRatio * 100)
+        let line = NumberText.whole(row.exam.kind == .stageExam ? group.stage.passLine : 75)
         return "总分 ≥ \(line) 分且每个分区 ≥ \(section)% 才算通过"
     }
 }

@@ -72,13 +72,13 @@ struct ResultView: View {
         GroupBox {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 if pending == 0, let percent = attempt.totalPercent {
-                    Text("\(Int(percent.rounded())) 分").font(.largeTitle.bold())
+                    Text("\(NumberText.whole(percent)) 分").font(.largeTitle.bold())
                     if let passed = attempt.passed {
                         Label(passed ? "通过" : "未通过", systemImage: passed ? "checkmark.seal.fill" : "xmark.seal.fill")
                             .foregroundStyle(passed ? .green : .red)
                     }
                     if let stage = context.stage, let exam = context.exam {
-                        Text("过关线 \(Int(exam.kind == .stageExam ? stage.passLine : 75)) 分").foregroundStyle(.secondary)
+                        Text("过关线 \(NumberText.whole(exam.kind == .stageExam ? stage.passLine : 75)) 分").foregroundStyle(.secondary)
                     }
                 } else {
                     Label("待判卷（还有 \(pending) 题没有成绩）", systemImage: "hourglass").font(.title3)
@@ -95,7 +95,7 @@ struct ResultView: View {
 
     private var sectionsBox: some View {
         let floor = (context.stage?.minSectionRatio ?? 0.6) * 100
-        return GroupBox("分区得分（每区不低于 \(Int(floor.rounded()))%）") {
+        return GroupBox("分区得分（每区不低于 \(NumberText.whole(floor))%）") {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(detail.sections.enumerated()), id: \.offset) { _, section in
                     let ok = section.percent >= floor
@@ -103,7 +103,7 @@ struct ResultView: View {
                         Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill").foregroundStyle(ok ? .green : .red)
                         Text(section.title)
                         Spacer()
-                        Text("\(format(section.earned)) / \(format(section.max)) · \(Int(section.percent.rounded()))%")
+                        Text("\(format(section.earned)) / \(format(section.max)) · \(NumberText.whole(section.percent))%")
                             .monospacedDigit().foregroundStyle(ok ? Color.secondary : Color.red)
                     }
                 }
@@ -211,7 +211,5 @@ struct ResultView: View {
         }
     }
 
-    private func format(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(format: "%.1f", value)
-    }
+    private func format(_ value: Double) -> String { NumberText.score(value) }
 }

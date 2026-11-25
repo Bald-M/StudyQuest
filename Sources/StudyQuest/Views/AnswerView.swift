@@ -124,7 +124,7 @@ struct AnswerView: View {
                 HStack {
                     Text("第 \(number) 题 · \(kindName(problem.kind))").font(.headline)
                     Spacer()
-                    Text("\(Int(problem.maxScore)) 分").foregroundStyle(.secondary)
+                    Text("\(NumberText.score(problem.maxScore)) 分").foregroundStyle(.secondary)
                 }
                 Text(problem.prompt).textSelection(.enabled)
                 input(for: problem)

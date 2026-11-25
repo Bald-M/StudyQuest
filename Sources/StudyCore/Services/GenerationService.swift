@@ -99,12 +99,12 @@ public final class GenerationService {
         let info = try store.stage(stage)
         let stages = try store.stages()
         let modules = try allModules(stages)
-        let percent = { (ratio: Double) in Int((ratio * 100).rounded()) }
+        let percent = { (ratio: Double) in NumberText.whole(ratio * 100) }
         let moduleKeys = modules.filter { $0.stageIndex <= stage }.map { "\($0.key)（\($0.title)，阶段 \($0.stageIndex)）" }
         let prompt = """
             请为阶段 \(stage)「\(info.title)」出一份阶段考试。
             考试形式（附录 A）：\(info.summary)
-            按这个形式设置分区（sections）与各分区权重（权重之和为 100）、timeLimitMinutes 与每个分区的题目；每个分区得分不低于 \(percent(info.minSectionRatio))% 才能过关，过关线 \(Int(info.passLine))。
+            按这个形式设置分区（sections）与各分区权重（权重之和为 100）、timeLimitMinutes 与每个分区的题目；每个分区得分不低于 \(percent(info.minSectionRatio))% 才能过关，过关线 \(NumberText.whole(info.passLine))。
             累积题：全部题目中，来自更早阶段（stageIndex 小于 \(stage)）的题占 \(percent(info.cumulativeMin))%–\(percent(info.cumulativeMax))%。
             \(Self.difficultyGuidance(stage: stage))
             可用的模块 key：\n\(moduleKeys.joined(separator: "\n"))
