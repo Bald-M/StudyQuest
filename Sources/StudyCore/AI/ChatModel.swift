@@ -93,8 +93,13 @@ extension HTTPClient {
     }
 }
 
-func joinURL(_ base: URL, _ path: String) -> URL {
-    var s = base.absoluteString
-    while s.hasSuffix("/") { s.removeLast() }
-    return URL(string: s + path)!
+func joinURL(_ base: URL, _ path: String) throws -> URL {
+    guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false),
+          parts.query == nil, parts.fragment == nil
+    else { throw AIError.notConfigured("baseURL") }
+    var basePath = parts.path
+    while basePath.hasSuffix("/") { basePath.removeLast() }
+    parts.path = basePath + path
+    guard let url = parts.url else { throw AIError.notConfigured("baseURL") }
+    return url
 }

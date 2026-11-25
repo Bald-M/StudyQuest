@@ -118,6 +118,7 @@ private func makeStore() throws -> (StudyStore, URL) {
         #expect(try registry.configs() == [config])
         for suffix in ["", "-wal"] {
             let path = dbURL.path + suffix
+            if suffix.isEmpty { #expect(FileManager.default.fileExists(atPath: path)) }
             guard let data = FileManager.default.contents(atPath: path) else { continue }
             #expect(data.range(of: Data("sk-secret".utf8)) == nil)
         }
@@ -152,5 +153,29 @@ private func makeStore() throws -> (StudyStore, URL) {
         try await registry.testConnection(id: config.id)
         let body = try jsonBody(try #require(http.requests.first))
         #expect(body["max_tokens"] as? Int == 16)
+    }
+
+    @Test func testConnectionToleratesTruncation() async throws {
+        let (store, _) = try makeStore()
+        let http = StubHTTPClient([
+            .json(["content": [["type": "text", "text": "x"]], "stop_reason": "max_tokens"]),
+            .json(["choices": [["message": ["content": "x"], "finish_reason": "length"]]]),
+        ])
+        let registry = ProviderRegistry(store: store, secrets: InMemorySecretStore(), http: http)
+        let a = ProviderConfig(id: UUID().uuidString, kind: .anthropic, name: "A", baseURL: "https://api.anthropic.com", model: "claude-opus-5-5")
+        let o = ProviderConfig(id: UUID().uuidString, kind: .openAICompatible, name: "O", baseURL: "https://example.com/v1", model: "m")
+        try registry.save(a, apiKey: "k")
+        try registry.save(o, apiKey: "k")
+        try await registry.testConnection(id: a.id)
+        try await registry.testConnection(id: o.id)
+    }
+
+    @Test func baseURLWithQueryIsRejected() async throws {
+        let http = StubHTTPClient([])
+        let model = OpenAICompatibleModel(baseURL: URL(string: "https://x.test/v1?x=1")!, model: "m", apiKey: "k", http: http)
+        await #expect(throws: AIError.notConfigured("baseURL")) { try await model.complete(ChatRequest(system: "s", messages: [])) }
+        let a = AnthropicModel(baseURL: URL(string: "https://x.test/#f")!, model: "m", apiKey: "k", effort: "low", http: http)
+        await #expect(throws: AIError.notConfigured("baseURL")) { try await a.complete(ChatRequest(system: "s", messages: [])) }
+        #expect(http.requests.isEmpty)
     }
 }

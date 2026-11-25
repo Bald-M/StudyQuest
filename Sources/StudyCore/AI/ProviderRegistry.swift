@@ -33,8 +33,15 @@ public struct ProviderRegistry: Sendable {
     }
 
     public func save(_ config: ProviderConfig, apiKey: String?) throws {
-        if let apiKey { try secrets.set(apiKey, for: config.id) }
+        let existed = try store.providerConfigs().contains { $0.id == config.id }
         try store.saveProviderConfig(config)
+        guard let apiKey else { return }
+        do {
+            try secrets.set(apiKey, for: config.id)
+        } catch {
+            if !existed { try? store.deleteProviderConfig(id: config.id) }
+            throw error
+        }
     }
 
     public func delete(id: String) throws {
@@ -44,13 +51,17 @@ public struct ProviderRegistry: Sendable {
 
     public func configs() throws -> [ProviderConfig] { try store.providerConfigs() }
 
-    /// 发一个极小请求；失败原样抛出模型的错误。
+    /// 发一个极小请求；失败原样抛出模型的错误，截断视为成功。
     public func testConnection(id: String) async throws {
         guard let config = try store.providerConfigs().first(where: { $0.id == id }) else {
             throw AIError.notConfigured(id)
         }
         let model = try makeModel(config, role: config.name)
-        _ = try await model.complete(ChatRequest(system: "", messages: [ChatMessage(role: "user", content: "ping")], maxTokens: 16))
+        do {
+            _ = try await model.complete(ChatRequest(system: "", messages: [ChatMessage(role: "user", content: "ping")], maxTokens: 16))
+        } catch AIError.truncated {
+            // 撞到 16 token 上限说明鉴权、地址、模型都正常。
+        }
     }
 
     private func makeModel(_ config: ProviderConfig, role: String) throws -> ChatModel {

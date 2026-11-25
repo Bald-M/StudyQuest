@@ -33,7 +33,7 @@ public struct AnthropicModel: ChatModel {
             "messages": request.messages.map { ["role": $0.role, "content": $0.content] },
             "output_config": outputConfig,
         ]
-        var urlRequest = URLRequest(url: joinURL(baseURL, "/v1/messages"))
+        var urlRequest = URLRequest(url: try joinURL(baseURL, "/v1/messages"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         urlRequest.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")

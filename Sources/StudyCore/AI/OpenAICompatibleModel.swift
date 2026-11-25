@@ -25,7 +25,7 @@ public struct OpenAICompatibleModel: ChatModel {
         body["messages"] =
             [["role": "system", "content": system]] + request.messages.map { ["role": $0.role, "content": $0.content] }
 
-        var urlRequest = URLRequest(url: joinURL(baseURL, "/chat/completions"))
+        var urlRequest = URLRequest(url: try joinURL(baseURL, "/chat/completions"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "content-type")
