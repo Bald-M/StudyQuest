@@ -17,6 +17,7 @@ public struct Stage: Codable, FetchableRecord, MutablePersistableRecord, Identif
     public var reward: String?
     public var status: StageStatus
     public var passedAt: Date?
+    public init(index: Int, title: String, summary: String, estimatedWeeks: String, passLine: Double, minSectionRatio: Double, cumulativeMin: Double, cumulativeMax: Double, cooldownDays: Int, reward: String? = nil, status: StageStatus, passedAt: Date? = nil) { self.index = index; self.title = title; self.summary = summary; self.estimatedWeeks = estimatedWeeks; self.passLine = passLine; self.minSectionRatio = minSectionRatio; self.cumulativeMin = cumulativeMin; self.cumulativeMax = cumulativeMax; self.cooldownDays = cooldownDays; self.reward = reward; self.status = status; self.passedAt = passedAt }
     public var id: Int { index }
     public static let databaseTableName = "stage"
 }
@@ -35,6 +36,7 @@ public struct Module: Codable, FetchableRecord, MutablePersistableRecord, Identi
     public var startedAt: Date?
     public var completedAt: Date?
     public var needsRelearn: Bool
+    public init(id: Int64? = nil, stageIndex: Int, key: String, title: String, points: String, resources: [String], gameTasks: [String], lifeProblems: [String], order: Int, status: ModuleStatus, startedAt: Date? = nil, completedAt: Date? = nil, needsRelearn: Bool) { self.id = id; self.stageIndex = stageIndex; self.key = key; self.title = title; self.points = points; self.resources = resources; self.gameTasks = gameTasks; self.lifeProblems = lifeProblems; self.order = order; self.status = status; self.startedAt = startedAt; self.completedAt = completedAt; self.needsRelearn = needsRelearn }
     public static let databaseTableName = "module"
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
