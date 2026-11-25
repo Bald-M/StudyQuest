@@ -55,6 +55,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     var loadError: String?
     /// 启动时恢复备份失败的说明；界面顶部显示，用户可关闭。
     var restoreError: String?
+    /// 各作答最近一次判卷失败的原因（已转成给人看的说明）；判卷成功或没有失败时清除。
+    var gradingFailures: [Int64: String] = [:]
     /// 每次 refresh 加一；页面据此重读自己的数据。
     var revision = 0
 
@@ -253,11 +255,13 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         refresh()
     }
 
-    /// 该作答已在判卷时直接返回 nil，不重复发请求。
+    /// 该作答已在判卷时直接返回 nil，不重复发请求；判完记下第一处失败的原因。
     private func gradeExclusively(attemptId: Int64) async -> GradingReport? {
         guard gradingInFlight.insert(attemptId).inserted else { return nil }
         defer { gradingInFlight.remove(attemptId) }
-        return await grading.grade(attemptId: attemptId)
+        let report = await grading.grade(attemptId: attemptId)
+        gradingFailures[attemptId] = report.firstError.map(userMessage)
+        return report
     }
 
     func pendingGradingCount(attemptId: Int64) throws -> Int { try store.pendingGrading(attemptId: attemptId).count }

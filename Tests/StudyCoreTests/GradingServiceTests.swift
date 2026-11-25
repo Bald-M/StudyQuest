@@ -66,6 +66,7 @@ private func submittedAttempt(_ store: StudyStore) throws -> (attemptId: Int64, 
         let report = await GradingService(store: store, model: { model }).grade(attemptId: attemptId)
         #expect(report.graded == 1)
         #expect(report.failed.count == 1 && report.failed[0].problemId == ids[0] && !report.failed[0].error.isEmpty)
+        #expect(report.firstError as? AIError == .truncated)
         #expect(model.calls == 4)
         #expect(try store.attemptDetail(id: attemptId).attempt.status == .submitted)
         #expect(try store.pendingGrading(attemptId: attemptId).map(\.id) == [ids[0]])
@@ -77,6 +78,7 @@ private func submittedAttempt(_ store: StudyStore) throws -> (attemptId: Int64, 
         let service = GradingService(store: store, model: { throw AIError.notConfigured("provider") })
         let report = await service.grade(attemptId: attemptId)
         #expect(report.graded == 0 && report.failed.count == ids.count)
+        #expect(report.firstError as? AIError == .notConfigured("provider"))
     }
 
     @Test func gradeOnUnsubmittedAttemptReportsFailure() async throws {

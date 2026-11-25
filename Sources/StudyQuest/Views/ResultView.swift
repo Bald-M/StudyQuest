@@ -84,6 +84,9 @@ struct ResultView: View {
                     Label("待判卷（还有 \(pending) 题没有成绩）", systemImage: "hourglass").font(.title3)
                     Button("重新判卷", action: onRegrade).disabled(busy)
                     if regrading { ProgressView().controlSize(.small) }
+                    if let reason = attempt.id.flatMap({ model.gradingFailures[$0] }) {
+                        Text("判卷失败：\(reason)").font(.callout).foregroundStyle(.red)
+                    }
                 }
                 Spacer()
             }

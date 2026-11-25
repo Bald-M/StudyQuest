@@ -31,6 +31,13 @@ public enum GradeParser {
 public struct GradingReport {
     public var graded: Int
     public var failed: [(problemId: Int64, error: String)]
+    /// 第一处失败的原始错误，界面据此显示原因（经 LocalizedError 转成中文，不含 HTTP 响应体）。
+    public var firstError: Error?
+
+    mutating func fail(_ problemId: Int64, _ error: Error) {
+        failed.append((problemId, "\(error)"))
+        if firstError == nil { firstError = error }
+    }
 }
 
 public final class GradingService {
@@ -45,20 +52,20 @@ public final class GradingService {
 
     /// 逐题（按作答题序）判卷，从不抛错；失败的题保持无成绩。
     public func grade(attemptId: Int64) async -> GradingReport {
-        var report = GradingReport(graded: 0, failed: [])
+        var report = GradingReport(graded: 0, failed: [], firstError: nil)
         let pending: [Problem]
         let answers: [Int64: String]
         do {
             pending = try store.pendingGrading(attemptId: attemptId)
             answers = try Self.answers(store.attemptDetail(id: attemptId))
         } catch {
-            report.failed.append((0, "\(error)"))
+            report.fail(0, error)
             return report
         }
         guard !pending.isEmpty else { return report }
         let chat: ChatModel
         do { chat = try model() } catch {
-            report.failed = pending.map { ($0.id!, "\(error)") }
+            for problem in pending { report.fail(problem.id!, error) }
             return report
         }
         for problem in pending {
@@ -66,7 +73,7 @@ public final class GradingService {
                 try await gradeOne(chat, attemptId: attemptId, problem: problem, answer: answers[problem.id!] ?? "")
                 report.graded += 1
             } catch {
-                report.failed.append((problem.id!, "\(error)"))
+                report.fail(problem.id!, error)
             }
         }
         return report
