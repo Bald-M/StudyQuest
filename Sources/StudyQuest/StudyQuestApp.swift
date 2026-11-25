@@ -68,7 +68,7 @@ struct RootView: View {
         }
         .sheet(isPresented: Binding(get: { model.activeAttemptId != nil }, set: { if !$0 { model.activeAttemptId = nil } })) {
             if let id = model.activeAttemptId {
-                AnswerView(model: model, attemptId: id) {
+                AnswerView(model: model, attemptId: id, showHints: true) {
                     model.activeAttemptId = nil
                     model.refresh()
                 }

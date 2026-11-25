@@ -24,6 +24,8 @@ struct AnswerView: View {
     @State private var loadError: String?
 
     private var answering: Bool { detail?.attempt.status == .inProgress }
+    /// 考试一律不给提示，不管调用方传什么。
+    private var hintsVisible: Bool { showHints && detail?.attempt.kind != .exam }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,7 +69,10 @@ struct AnswerView: View {
         HStack {
             Text(title).font(.title3.bold())
             Spacer()
-            Button(answering ? "稍后再做" : "关闭") { flushAll(); onClose() }
+            Button(answering ? "稍后再做" : "关闭") {
+                flushAll()
+                if dirty.isEmpty { onClose() } else { notice = Self.unsavedNotice }
+            }
                 .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
@@ -113,7 +118,7 @@ struct AnswerView: View {
                 Text(problem.prompt).textSelection(.enabled)
                 input(for: problem)
                     .disabled(working)
-                if showHints {
+                if hintsVisible {
                     HStack {
                         Button("提示") { Task { await requestHint(problem) } }
                             .disabled(hintLoading != nil || working)
@@ -236,8 +241,14 @@ struct AnswerView: View {
         }
     }
 
+    private static let unsavedNotice = "有答案未能保存，请重试"
+
     private func submit() async {
         flushAll()
+        guard dirty.isEmpty else {
+            notice = Self.unsavedNotice
+            return
+        }
         working = true
         defer { working = false }
         do {

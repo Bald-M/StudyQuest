@@ -26,9 +26,12 @@ struct CodeEditor: NSViewRepresentable {
         view.isAutomaticDataDetectionEnabled = false
         view.isContinuousSpellCheckingEnabled = false
         view.isGrammarCheckingEnabled = false
+        view.minSize = NSSize(width: 0, height: 0)
+        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         view.isVerticallyResizable = true
         view.isHorizontallyResizable = false
         view.autoresizingMask = [.width]
+        view.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         view.textContainer?.widthTracksTextView = true
         view.string = text
         scroll.documentView = view
