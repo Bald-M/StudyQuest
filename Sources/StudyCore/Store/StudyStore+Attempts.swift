@@ -511,3 +511,21 @@ extension StudyStore {
         }
     }
 }
+
+// MARK: 模拟面试
+
+extension StudyStore {
+    /// 新建（无 id）或更新一场模拟面试，返回带 id 的记录。
+    public func saveMockInterview(_ interview: MockInterview) throws -> MockInterview {
+        var record = interview
+        try pool.write { db in
+            if record.id == nil { try record.insert(db) } else { try record.update(db) }
+        }
+        notifier.post()
+        return record
+    }
+
+    public func mockInterview(id: Int64) throws -> MockInterview? {
+        try pool.read { try MockInterview.fetchOne($0, key: id) }
+    }
+}

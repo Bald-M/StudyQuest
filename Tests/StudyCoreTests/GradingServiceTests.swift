@@ -10,28 +10,6 @@ private func makeStore() throws -> StudyStore {
                           notifier: NoopChangeNotifier())
 }
 
-/// 按队列依次返回文本或抛错；记录每次请求。
-private final class FakeModel: ChatModel, @unchecked Sendable {
-    enum Reply { case text(String), error(Error) }
-    private let lock = NSLock()
-    private var queue: [Reply]
-    private var recorded: [ChatRequest] = []
-    init(_ replies: [Reply]) { queue = replies }
-    var label: String { "fake:test" }
-    var calls: Int { lock.withLock { recorded.count } }
-    var requests: [ChatRequest] { lock.withLock { recorded } }
-    func complete(_ request: ChatRequest) async throws -> String {
-        let reply: Reply = lock.withLock {
-            recorded.append(request)
-            return queue.isEmpty ? .error(AIError.emptyResponse) : queue.removeFirst()
-        }
-        switch reply {
-        case .text(let s): return s
-        case .error(let e): throw e
-        }
-    }
-}
-
 private let good = #"{"score": 8, "feedback": "好", "mistakes": ["漏了一点"]}"#
 
 /// 一个分区两道 10 分题的阶段 0 试卷，已开始并交卷（第一题有答案，第二题留空）。

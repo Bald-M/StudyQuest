@@ -24,18 +24,7 @@ public struct GradeResult: Codable, Equatable, Sendable {
 public enum GradeParser {
     /// 剥掉首尾的 ```json / ``` 围栏与空白后解码；失败抛 `AIError.invalidJSON`（带原文片段）。
     public static func parse(_ text: String) throws -> GradeResult {
-        var body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if body.hasPrefix("```") {
-            body.removeFirst(3)
-            if body.lowercased().hasPrefix("json") { body.removeFirst(4) }
-        }
-        if body.hasSuffix("```") { body.removeLast(3) }
-        body = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        do {
-            return try JSONDecoder().decode(GradeResult.self, from: Data(body.utf8))
-        } catch {
-            throw AIError.invalidJSON(String(text.prefix(200)))
-        }
+        try JSONReply.decode(GradeResult.self, from: text)
     }
 }
 
