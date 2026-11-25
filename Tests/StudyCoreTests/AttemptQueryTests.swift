@@ -23,6 +23,15 @@ private func grade(_ store: StudyStore, _ attempt: Attempt, score: Double) throw
 }
 
 struct AttemptQueryTests {
+    @Test func rewardSeenIsPersistedPerAttempt() throws {
+        let store = try makeStore(clock: FixedClock(t0))
+        #expect(try !store.hasSeenReward(attemptId: 1))
+        try store.markRewardSeen(attemptId: 1)
+        try store.markRewardSeen(attemptId: 1)
+        #expect(try store.hasSeenReward(attemptId: 1))
+        #expect(try !store.hasSeenReward(attemptId: 2))
+    }
+
     @Test func mockInterviewsNewestFirst() throws {
         let clock = FixedClock(t0)
         let store = try makeStore(clock: clock)

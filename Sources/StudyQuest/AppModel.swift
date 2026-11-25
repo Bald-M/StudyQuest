@@ -352,6 +352,10 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         try await grading.regrade(attemptId: attemptId, problemId: problemId)
     }
 
+    func hasSeenReward(attemptId: Int64) -> Bool { (try? store.hasSeenReward(attemptId: attemptId)) ?? true }
+
+    func markRewardSeen(attemptId: Int64) { try? store.markRewardSeen(attemptId: attemptId) }
+
     func saveReflection(attemptId: Int64, text: String) throws {
         try store.saveReflection(attemptId: attemptId, text: text)
     }

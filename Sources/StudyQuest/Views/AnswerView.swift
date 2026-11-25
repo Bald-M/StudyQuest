@@ -22,6 +22,7 @@ struct AnswerView: View {
     @State private var working = false
     @State private var confirmSubmit = false
     @State private var loadError: String?
+    @State private var timeoutFailed = false
 
     private var answering: Bool { detail?.attempt.status == .inProgress }
     /// 考试一律不给提示，不管调用方传什么。
@@ -31,7 +32,8 @@ struct AnswerView: View {
         VStack(spacing: 0) {
             header
             if answering, detail?.attempt.kind == .exam, let deadline = detail?.attempt.deadline {
-                ExamSessionView(deadline: deadline, now: model.now) { Task { await submit(timedOut: true) } }
+                ExamSessionView(deadline: deadline, now: model.now, failed: timeoutFailed,
+                                onRetry: { Task { await submit(timedOut: true) } }) { Task { await submit(timedOut: true) } }
             }
             Divider()
             if let detail {
@@ -60,6 +62,7 @@ struct AnswerView: View {
         .frame(minWidth: 680, minHeight: 520)
         .onAppear(perform: load)
         .onDisappear(perform: flushAll)
+        .onChange(of: answering) { if !answering { confirmSubmit = false } }
         .confirmationDialog("确定交卷？", isPresented: $confirmSubmit) {
             Button("交卷") { Task { await submit() } }
         } message: {
@@ -250,8 +253,10 @@ struct AnswerView: View {
     /// `timedOut`：考试倒计时到点的自动交卷。保存已被截止时间挡住时不再等待，按已保存的答案交卷。
     private func submit(timedOut: Bool = false) async {
         guard !working else { return }
+        // 过了截止时间，手动交卷也按超时处理：之后的保存都会被挡住，不能再等 dirty 清空
+        let late = timedOut || (detail?.attempt.deadline.map { model.now() >= $0 } ?? false)
         flushAll()
-        guard timedOut || dirty.isEmpty else {
+        guard late || dirty.isEmpty else {
             notice = Self.unsavedNotice
             return
         }
@@ -259,9 +264,11 @@ struct AnswerView: View {
         defer { working = false }
         do {
             try await model.submitAndGrade(attemptId: attemptId)
-            notice = timedOut ? "时间已到，已自动交卷" : nil
+            notice = late ? "时间已到，已自动交卷" : nil
+            timeoutFailed = false
         } catch {
             notice = userMessage(error)
+            if late { timeoutFailed = true }
         }
         reload()
     }

@@ -57,10 +57,12 @@ struct ResultView: View {
             reflection = attempt.reflection ?? ""
             reflectionLoaded = true
         }
-        // 只有通过的阶段考试才弹；每次作答在本次界面会话中只弹一次
-        if !rewardShown, pending == 0, attempt.passed == true, context.exam?.kind == .stageExam {
+        // 只有通过的阶段考试才弹；每次作答只弹一次（记在数据库里，重开结果或复判翻转都不再弹）
+        if !rewardShown, pending == 0, attempt.passed == true, context.exam?.kind == .stageExam,
+           let id = attempt.id, !model.hasSeenReward(attemptId: id) {
             rewardShown = true
             showReward = true
+            model.markRewardSeen(attemptId: id)
         }
     }
 

@@ -6,13 +6,19 @@ struct ExamSessionView: View {
     let deadline: Date
     let now: () -> Date
     let onExpire: () -> Void
+    /// 自动交卷失败时为 true：显示「重新交卷」。
+    var failed = false
+    var onRetry: () -> Void = {}
 
     @State private var remaining: TimeInterval
     @State private var expired = false
 
-    init(deadline: Date, now: @escaping () -> Date, onExpire: @escaping () -> Void) {
+    init(deadline: Date, now: @escaping () -> Date, failed: Bool = false, onRetry: @escaping () -> Void = {},
+         onExpire: @escaping () -> Void) {
         self.deadline = deadline
         self.now = now
+        self.failed = failed
+        self.onRetry = onRetry
         self.onExpire = onExpire
         _remaining = State(initialValue: max(0, deadline.timeIntervalSince(now())))
     }
@@ -20,9 +26,10 @@ struct ExamSessionView: View {
     var body: some View {
         HStack {
             Image(systemName: "timer")
-            Text(expired ? "时间已到，正在交卷…" : "剩余 \(Self.format(remaining))")
+            Text(expired ? (failed ? "时间已到，交卷失败" : "时间已到，正在交卷…") : "剩余 \(Self.format(remaining))")
                 .font(.title3.monospacedDigit().bold())
             Spacer()
+            if failed { Button("重新交卷", action: onRetry) }
             Text("考试中不提供提示").font(.caption).foregroundStyle(.secondary)
         }
         .foregroundStyle(color)

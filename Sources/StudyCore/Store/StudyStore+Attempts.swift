@@ -546,6 +546,15 @@ extension StudyStore {
         try pool.read { try MockInterview.fetchOne($0, key: id) }
     }
 
+    /// 阶段通过奖励弹窗是否已对该作答弹过；记在 AppSetting（键 `rewardSeen.<attemptId>`）。
+    public func hasSeenReward(attemptId: Int64) throws -> Bool {
+        try pool.read { try AppSetting.fetchOne($0, key: "rewardSeen.\(attemptId)") } != nil
+    }
+
+    public func markRewardSeen(attemptId: Int64) throws {
+        try pool.write { try AppSetting(key: "rewardSeen.\(attemptId)", value: "1").save($0) }
+    }
+
     /// 全部模拟面试，最新的在前。
     public func mockInterviews() throws -> [MockInterview] {
         try pool.read { try MockInterview.order(Column("createdAt").desc, Column("id").desc).fetchAll($0) }
