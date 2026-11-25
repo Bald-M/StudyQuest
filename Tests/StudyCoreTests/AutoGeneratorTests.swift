@@ -60,8 +60,9 @@ private final class FakeGenerator: ContentGenerating, @unchecked Sendable {
         await Task.yield()
         if shouldFail() { throw Failure() }
         let section = SectionInput(title: "综合", weight: 100, source: .problems, problemIds: nil, problems: [problem("周测题")])
+        // 与 GenerationService 一致：生成的周测是草稿（草稿也算本周已有周测）
         return try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "周测", timeLimitMinutes: 30, sections: [section]),
-                                    source: "test").id
+                                    source: "test", status: .draft).id
     }
 }
 

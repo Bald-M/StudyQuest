@@ -109,6 +109,21 @@ private func problemsReply(_ prompts: [String], module: String? = "s0.git") -> S
         #expect(model.requests[0].messages[0].content.contains("20%") && model.requests[0].messages[0].content.contains("30%"))
     }
 
+    @Test func generatedExamStartsAsDraft() async throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let git = try #require(try store.module(key: "s0.git"))
+        try store.setModuleStatus(id: git.id!, .learning)
+        let quiz = #"{"title": "本周测验", "problems": [\#(problemJSON("题一"))]}"#
+        let stageExam = #"{"title": "阶段 0 考试", "timeLimitMinutes": 90, "sections": [{"title": "上机", "weight": 100, "problems": [\#(problemJSON("做一次合并"))]}]}"#
+        let model = FakeModel([.text(quiz), .text(stageExam)])
+        let service = GenerationService(store: store, model: { model })
+        let quizId = try await service.generateWeeklyQuiz()
+        let examId = try await service.generateStageExam(stage: 0).id
+        #expect(try store.examDetail(id: quizId, revealAnswers: false).exam.status == .draft)
+        #expect(try store.examDetail(id: examId, revealAnswers: false).exam.status == .draft)
+    }
+
     @Test func cardsAreStoredForModule() async throws {
         let store = try makeStore()
         let module = try #require(try store.module(key: "s0.git"))

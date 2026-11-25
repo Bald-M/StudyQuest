@@ -51,6 +51,36 @@ private func problem(stage: Int = 0, prompt: String = "题干", kind: ProblemKin
         #expect(second.warnings.contains { $0.contains("重复") })
     }
 
+    @Test func draftCannotBeStarted() throws {
+        let store = try makeStore()
+        let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem()])
+        let id = try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "草稿周测", timeLimitMinutes: 20, sections: [section]),
+                                      source: "test", status: .draft).id
+        #expect(try store.examDetail(id: id, revealAnswers: false).exam.status == .draft)
+        #expect(throws: StoreError.invalid("试卷还是草稿，请先确认")) { try store.startExam(id: id) }
+        #expect(try store.attempts(examId: id, status: nil).isEmpty)
+    }
+
+    @Test func confirmAndDiscardDraft() throws {
+        let store = try makeStore()
+        let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem()])
+        let input = ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "草稿周测", timeLimitMinutes: 20, sections: [section])
+
+        let kept = try store.createExam(input, source: "test", status: .draft).id
+        try store.confirmExam(id: kept)
+        #expect(try store.examDetail(id: kept, revealAnswers: false).exam.status == .ready)
+        #expect(throws: StoreError.self) { try store.confirmExam(id: kept) }
+        #expect(throws: StoreError.self) { try store.discardExam(id: kept) }
+        _ = try store.startExam(id: kept)
+
+        let dropped = try store.createExam(input, source: "test", status: .draft).id
+        try store.discardExam(id: dropped)
+        #expect(throws: StoreError.notFound("试卷 \(dropped)")) { try store.examDetail(id: dropped, revealAnswers: false) }
+        #expect(try store.exams(stage: 0).map(\.id) == [kept])
+        #expect(try store.pool.read { try ExamSection.filter(Column("examId") == dropped).fetchCount($0) } == 0)
+        #expect(throws: StoreError.notFound("试卷 \(dropped)")) { try store.confirmExam(id: dropped) }
+    }
+
     @Test func answersHiddenUntilRevealed() throws {
         let store = try makeStore()
         let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem(), problem(prompt: "二")])

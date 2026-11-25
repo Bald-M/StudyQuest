@@ -342,6 +342,16 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         refresh()
     }
 
+    func confirmExam(id: Int64) throws {
+        try store.confirmExam(id: id)
+        refresh()
+    }
+
+    func discardExam(id: Int64) throws {
+        try store.discardExam(id: id)
+        refresh()
+    }
+
     func now() -> Date { store.clock.now() }
 
     /// 结果页要用的试卷、阶段，以及未通过时的冷却状态。

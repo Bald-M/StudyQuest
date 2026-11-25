@@ -38,6 +38,7 @@ extension StudyStore {
         let calendar = clock.calendar
         let attempt = try pool.write { db -> Attempt in
             guard var exam = try Exam.fetchOne(db, key: id) else { throw StoreError.notFound("试卷 \(id)") }
+            guard exam.status != .draft else { throw StoreError.invalid("试卷还是草稿，请先确认") }
             if try Attempt.filter(Column("examId") == id).fetchCount(db) > 0 {
                 throw StoreError.invalid("这张试卷已经作答过，重考需要一张新卷")
             }

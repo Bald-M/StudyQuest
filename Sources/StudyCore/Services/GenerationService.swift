@@ -1,6 +1,7 @@
 import Foundation
 
 /// AI 出题：作业、周测、阶段考试、卡片。输出先过 `ContentValidator`，有错让模型修正一次，仍有错抛 `StoreError.invalid`。
+/// 周测与阶段考试存为草稿，用户确认后才能开考。
 public final class GenerationService {
     static let source = "app_ai"
 
@@ -92,7 +93,7 @@ public final class GenerationService {
             let exam = Self.weeklyExam(stage: stageIndex, title: output.title, problems: problems)
             return (Self.titleErrors(output.title) + ContentValidator.validate(exam, stages: stages, modules: modules), exam)
         }
-        return try store.createExam(output.checked, source: Self.source).id
+        return try store.createExam(output.checked, source: Self.source, status: .draft).id
     }
 
     public func generateStageExam(stage: Int) async throws -> (id: Int64, warnings: [String]) {
@@ -119,7 +120,7 @@ public final class GenerationService {
                 })
             return (Self.titleErrors(output.title) + ContentValidator.validate(exam, stages: stages, modules: modules), exam)
         }
-        return try store.createExam(output.checked, source: Self.source)
+        return try store.createExam(output.checked, source: Self.source, status: .draft)
     }
 
     // MARK: 生成与修正

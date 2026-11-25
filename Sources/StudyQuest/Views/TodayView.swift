@@ -110,6 +110,9 @@ struct TodayView: View {
     private func examsSection(_ today: TodaySummary) -> some View {
         Section("考试") {
             if today.readyExams.isEmpty { Text("没有可参加的考试").foregroundStyle(.secondary) }
+            if today.draftExams > 0 {
+                row("doc.badge.ellipsis", "有 \(today.draftExams) 份试卷待确认") { model.selection = .exams }
+            }
             ForEach(today.readyExams) { exam in
                 row("doc.text", "\(exam.title) · \(exam.timeLimitMinutes) 分钟") {
                     model.selectedExamId = exam.id

@@ -1,7 +1,7 @@
 import StudyCore
 import SwiftUI
 
-/// 考试页：按阶段分组的试卷（状态、警告）、开考前确认、被门槛挡住时的原因，以及模拟面试入口。
+/// 考试页：按阶段分组的试卷（状态、警告）、草稿的确认上线与丢弃、开考前确认、被门槛挡住时的原因，以及模拟面试入口。
 struct ExamsView: View {
     let model: AppModel
 
@@ -80,6 +80,9 @@ struct ExamsView: View {
     @ViewBuilder private func action(_ group: AppModel.ExamGroup, _ row: AppModel.StageExamRow, _ attempt: Attempt?) -> some View {
         if let attempt {
             Button(attempt.status == .inProgress ? "继续作答" : "查看结果") { open(row) }
+        } else if row.exam.status == .draft {
+            Button("确认上线") { perform { try model.confirmExam(id: row.id) } }
+            Button("丢弃", role: .destructive) { perform { try model.discardExam(id: row.id) } }
         } else if row.exam.status == .ready {
             Button("开考…") { confirming = Confirmation(group: group, row: row) }
         }
@@ -92,6 +95,16 @@ struct ExamsView: View {
         case .submitted: return "已交卷，待判卷"
         case .graded: return "\(NumberText.whole(attempt.totalPercent ?? 0)) 分 · \(attempt.passed == true ? "通过" : "未通过")"
         }
+    }
+
+    private func perform(_ body: () throws -> Void) {
+        do {
+            try body()
+            actionError = nil
+        } catch {
+            actionError = userMessage(error)
+        }
+        reload()
     }
 
     private func start(_ row: AppModel.StageExamRow) {

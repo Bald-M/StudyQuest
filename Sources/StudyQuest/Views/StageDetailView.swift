@@ -171,8 +171,8 @@ struct StageDetailView: View {
                     HStack {
                         Text(row.exam.title)
                         Spacer()
-                        if row.attempts.isEmpty, row.exam.status == .ready {
-                            Button("去考试") {
+                        if row.attempts.isEmpty, row.exam.status == .ready || row.exam.status == .draft {
+                            Button(row.exam.status == .draft ? "草稿，去确认" : "去考试") {
                                 model.selectedExamId = row.exam.id
                                 model.selection = .exams
                             }
