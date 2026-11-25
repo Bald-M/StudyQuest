@@ -10,7 +10,7 @@ public enum StoreError: Error, Equatable {
 /// 所有业务读写的入口。App 与 MCP 服务器共用；每次写入提交后通知其他进程。
 public final class StudyStore: Sendable {
     let database: AppDatabase
-    let clock: Clock
+    public let clock: Clock
     let notifier: ChangeNotifier
 
     var pool: DatabasePool { database.pool }

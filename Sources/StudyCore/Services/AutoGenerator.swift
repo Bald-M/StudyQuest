@@ -93,7 +93,8 @@ public final class AutoGenerator {
         }
     }
 
-    private static func status(of run: AutoGenRun) -> AutoGenStatus {
+    /// 当天记录对应的状态；MCP 的 get_today 也用它。
+    public static func status(of run: AutoGenRun) -> AutoGenStatus {
         switch run.status {
         case "done": .done
         case "failed": .failed(run.errors)
