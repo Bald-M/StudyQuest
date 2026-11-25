@@ -1,0 +1,119 @@
+import Foundation
+
+public protocol HTTPClient: Sendable {
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+}
+
+public struct URLSessionHTTPClient: HTTPClient {
+    private let session: URLSession
+
+    public init() {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 120
+        session = URLSession(configuration: config)
+    }
+
+    public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        return (data, http)
+    }
+}
+
+/// 测试用：记录请求，按队列依次返回预设响应。队列用完后抛错。
+public final class StubHTTPClient: HTTPClient, @unchecked Sendable {
+    public enum Reply {
+        case json(Any, status: Int = 200)
+        case raw(Data, status: Int)
+    }
+
+    private let lock = NSLock()
+    private var queue: [Reply]
+    private var recorded: [URLRequest] = []
+
+    public init(_ replies: [Reply]) { queue = replies }
+
+    public var requests: [URLRequest] { lock.withLock { recorded } }
+
+    public func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let reply: Reply = try lock.withLock {
+            recorded.append(request)
+            guard !queue.isEmpty else { throw URLError(.cannotConnectToHost) }
+            return queue.removeFirst()
+        }
+        let (data, status): (Data, Int)
+        switch reply {
+        case .json(let object, let code): (data, status) = (try JSONSerialization.data(withJSONObject: object), code)
+        case .raw(let bytes, let code): (data, status) = (bytes, code)
+        }
+        let url = request.url ?? URL(string: "https://stub.invalid")!
+        return (data, HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
+    }
+}
+
+public struct ChatMessage: Codable, Sendable {
+    public var role: String  // "user" | "assistant"
+    public var content: String
+    public init(role: String, content: String) { self.role = role; self.content = content }
+}
+
+public struct ChatRequest: Sendable {
+    public var system: String
+    public var messages: [ChatMessage]
+    public var jsonSchema: JSONValue?
+    public var maxTokens: Int
+    public init(system: String, messages: [ChatMessage], jsonSchema: JSONValue? = nil, maxTokens: Int = 16000) {
+        self.system = system; self.messages = messages; self.jsonSchema = jsonSchema; self.maxTokens = maxTokens
+    }
+}
+
+public protocol ChatModel: Sendable {
+    /// "<kind>:<model>"
+    var label: String { get }
+    func complete(_ request: ChatRequest) async throws -> String
+}
+
+public enum AIError: Error, Equatable {
+    case notConfigured(String)
+    case http(status: Int, body: String)
+    case refusal(category: String?)
+    case truncated
+    case emptyResponse
+    case invalidJSON(String)
+}
+
+/// 给用户看的中文说明。HTTP 错误不带响应体：有的服务商会在报错里回显部分 Key。
+extension AIError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConfigured: "先在设置中配置 AI 服务商"
+        case .http(let status, _): "连接失败（HTTP \(status)）"
+        case .refusal: "AI 拒绝了这次请求"
+        case .truncated: "AI 的回复被截断，请重试"
+        case .emptyResponse: "AI 没有返回内容，请重试"
+        case .invalidJSON: "AI 的回复格式不对，请重试"
+        }
+    }
+}
+
+extension HTTPClient {
+    /// 发送并要求 2xx；否则抛 `AIError.http`（body 截到 500 字符）。
+    func sendChecked(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await send(request)
+        guard (200..<300).contains(response.statusCode) else {
+            throw AIError.http(status: response.statusCode, body: String(String(decoding: data, as: UTF8.self).prefix(500)))
+        }
+        return data
+    }
+}
+
+func joinURL(_ base: URL, _ path: String) throws -> URL {
+    guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false),
+          parts.query == nil, parts.fragment == nil
+    else { throw AIError.notConfigured("baseURL") }
+    var basePath = parts.path
+    while basePath.hasSuffix("/") { basePath.removeLast() }
+    parts.path = basePath + path
+    guard let url = parts.url else { throw AIError.notConfigured("baseURL") }
+    return url
+}

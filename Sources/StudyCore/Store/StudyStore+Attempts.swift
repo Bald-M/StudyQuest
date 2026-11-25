@@ -14,6 +14,9 @@ public struct AttemptDetail: Sendable {
 }
 
 extension StudyStore {
+    /// 截止后仍接受保存的宽限秒数：界面的自动保存有防抖，到点那一刻的最后几次输入可能稍晚才写入。
+    public static let examSaveGrace: TimeInterval = 5
+
     // MARK: 开始作答
 
     public func startAssignment(id: Int64) throws -> Attempt {
@@ -35,6 +38,7 @@ extension StudyStore {
         let calendar = clock.calendar
         let attempt = try pool.write { db -> Attempt in
             guard var exam = try Exam.fetchOne(db, key: id) else { throw StoreError.notFound("试卷 \(id)") }
+            guard exam.status != .draft else { throw StoreError.invalid("试卷还是草稿，请先确认") }
             if try Attempt.filter(Column("examId") == id).fetchCount(db) > 0 {
                 throw StoreError.invalid("这张试卷已经作答过，重考需要一张新卷")
             }
@@ -76,13 +80,13 @@ extension StudyStore {
 
     // MARK: 作答与交卷
 
-    /// 已过截止时间则不保存：先自动交卷（与 `expireOverdueAttempts` 相同），提交后再抛 `.blocked`。
+    /// 截止后 `examSaveGrace` 秒内仍保存；再晚则不保存：先自动交卷（与 `expireOverdueAttempts` 相同），提交后再抛 `.blocked`。
     public func saveAnswer(attemptId: Int64, problemId: Int64, answer: String) throws {
         let now = clock.now()
         let expired = try pool.write { db -> Bool in
             let attempt = try Self.fetchAttempt(db, id: attemptId)
             guard attempt.status == .inProgress else { throw StoreError.invalid("作答已提交，不能再修改答案") }
-            if let deadline = attempt.deadline, deadline < now {
+            if let deadline = attempt.deadline, deadline.addingTimeInterval(Self.examSaveGrace) < now {
                 try Self.submit(db, attemptId: attemptId, now: now)
                 return true
             }
@@ -107,12 +111,13 @@ extension StudyStore {
         notifier.post()
     }
 
-    /// 已过截止时间仍在作答中的作答自动交卷（保留已保存的答案），返回其 id。
+    /// 已过截止时间（含保存宽限）仍在作答中的作答自动交卷（保留已保存的答案），返回其 id。
     public func expireOverdueAttempts() throws -> [Int64] {
         let now = clock.now()
+        let cutoff = now.addingTimeInterval(-Self.examSaveGrace)
         let ids = try pool.write { db -> [Int64] in
             let overdue = try Attempt
-                .filter(Column("status") == AttemptStatus.inProgress.rawValue && Column("deadline") < now)
+                .filter(Column("status") == AttemptStatus.inProgress.rawValue && Column("deadline") < cutoff)
                 .order(Column("id")).fetchAll(db)
             for attempt in overdue { try Self.submit(db, attemptId: attempt.id!, now: now) }
             return overdue.map { $0.id! }
@@ -184,6 +189,23 @@ extension StudyStore {
             if let examId { request = request.filter(Column("examId") == examId) }
             if let status { request = request.filter(Column("status") == status.rawValue) }
             return try request.fetchAll(db)
+        }
+    }
+
+    /// 某份作业的全部作答，最新的在前。
+    public func attempts(assignmentId: Int64) throws -> [Attempt] {
+        try pool.read {
+            try Attempt.filter(Column("assignmentId") == assignmentId).order(Column("startedAt").desc, Column("id").desc).fetchAll($0)
+        }
+    }
+
+    /// 某道错题尚未判完（作答中或已交卷）的重做。
+    public func openRedoAttempt(mistakeId: Int64) throws -> Attempt? {
+        try pool.read {
+            try Attempt.filter(
+                Column("mistakeId") == mistakeId
+                    && [AttemptStatus.inProgress.rawValue, AttemptStatus.submitted.rawValue].contains(Column("status"))
+            ).order(Column("id").desc).fetchOne($0)
         }
     }
 
@@ -334,7 +356,7 @@ extension StudyStore {
         let isFirstFinalize = attempt.status == .submitted
         let sections = try sectionScores(db, attempt: attempt, problems: problems, latest: latest)
 
-        // 1. 总分与过关：阶段考试用阶段过关线，周测 75，作业与错题重做不判过关
+        // 1. 总分与过关：阶段考试用阶段过关线与分区最低线，周测只看总分 75，作业与错题重做不判过关
         let exam = try attempt.examId.flatMap { try Exam.fetchOne(db, key: $0) }
         let stage = try exam.flatMap { try Stage.fetchOne(db, key: $0.stageIndex) }
         switch exam?.kind {
@@ -343,7 +365,7 @@ extension StudyStore {
             attempt.totalPercent = outcome.totalPercent
             attempt.passed = outcome.passed
         case .weeklyQuiz?:
-            let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: stage!.minSectionRatio)
+            let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: 0)
             attempt.totalPercent = outcome.totalPercent
             attempt.passed = outcome.passed
         case nil:
@@ -503,11 +525,43 @@ extension StudyStore {
             return "阶段考试冷却期中，\(until) 起可以重考"
         case .needsRelearn(let moduleId):
             let title = try Module.fetchOne(db, key: moduleId)?.title ?? "模块 \(moduleId)"
-            return "连续两次未通过：需要先完成模块「\(title)」的至少一份作业"
+            return "连续两次未通过：需完成一份在上次未通过之后新生成的「\(title)」作业"
         case .locked:
             return "该阶段尚未解锁"
         case .alreadyPassed:
             return "该阶段已经通过"
         }
+    }
+}
+
+// MARK: 模拟面试
+
+extension StudyStore {
+    /// 新建（无 id）或更新一场模拟面试，返回带 id 的记录。
+    public func saveMockInterview(_ interview: MockInterview) throws -> MockInterview {
+        var record = interview
+        try pool.write { db in
+            if record.id == nil { try record.insert(db) } else { try record.update(db) }
+        }
+        notifier.post()
+        return record
+    }
+
+    public func mockInterview(id: Int64) throws -> MockInterview? {
+        try pool.read { try MockInterview.fetchOne($0, key: id) }
+    }
+
+    /// 阶段通过奖励弹窗是否已对该作答弹过；记在 AppSetting（键 `rewardSeen.<attemptId>`）。
+    public func hasSeenReward(attemptId: Int64) throws -> Bool {
+        try pool.read { try AppSetting.fetchOne($0, key: "rewardSeen.\(attemptId)") } != nil
+    }
+
+    public func markRewardSeen(attemptId: Int64) throws {
+        try pool.write { try AppSetting(key: "rewardSeen.\(attemptId)", value: "1").save($0) }
+    }
+
+    /// 全部模拟面试，最新的在前。
+    public func mockInterviews() throws -> [MockInterview] {
+        try pool.read { try MockInterview.order(Column("createdAt").desc, Column("id").desc).fetchAll($0) }
     }
 }

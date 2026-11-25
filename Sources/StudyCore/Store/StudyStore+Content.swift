@@ -115,6 +115,7 @@ extension StudyStore {
             stages: stages, modules: modules)
         if input.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("作业标题不能为空") }
         if (input.problemIds?.count ?? 0) + (input.problems?.count ?? 0) == 0 { errors.append("作业至少需要 1 道题") }
+        errors += ContentValidator.duplicateIdErrors(input.problemIds ?? [])
         errors += (input.problems ?? []).flatMap { ContentValidator.validate($0, stages: stages, modules: modules) }
         try Self.require(errors)
         let now = clock.now()
@@ -145,9 +146,16 @@ extension StudyStore {
         }
     }
 
+    public func completedAssignments() throws -> [Assignment] {
+        try pool.read {
+            try Assignment.filter(Column("status") == AssignmentStatus.completed.rawValue).order(Column("day").desc, Column("id").desc).fetchAll($0)
+        }
+    }
+
     // MARK: 试卷
 
-    public func createExam(_ input: ExamInput, source: String) throws -> (id: Int64, warnings: [String]) {
+    /// `status`：App 内 AI 生成的试卷为 `.draft`，确认后才能开考；MCP 录入的直接 `.ready`。
+    public func createExam(_ input: ExamInput, source: String, status: ExamStatus = .ready) throws -> (id: Int64, warnings: [String]) {
         let (stages, modules) = try catalog()
         try Self.require(ContentValidator.validate(input, stages: stages, modules: modules))
         guard let stage = stages.first(where: { $0.index == input.stageIndex }) else { throw StoreError.notFound("阶段 \(input.stageIndex)") }
@@ -179,7 +187,7 @@ extension StudyStore {
 
             var exam = Exam(
                 stageIndex: input.stageIndex, kind: input.kind, title: input.title, timeLimitMinutes: input.timeLimitMinutes,
-                status: .ready, warnings: warnings, source: source, createdAt: now)
+                status: status, warnings: warnings, source: source, createdAt: now)
             try exam.insert(db)
             for (i, section) in input.sections.enumerated() {
                 var row = ExamSection(
@@ -191,6 +199,28 @@ extension StudyStore {
         }
         notifier.post()
         return (id: result.0, warnings: result.1)
+    }
+
+    /// 草稿 → 就绪；不是草稿则拒绝。
+    public func confirmExam(id: Int64) throws {
+        try pool.write { db in
+            guard var exam = try Exam.fetchOne(db, key: id) else { throw StoreError.notFound("试卷 \(id)") }
+            guard exam.status == .draft else { throw StoreError.invalid("只有草稿试卷需要确认") }
+            exam.status = .ready
+            try exam.update(db)
+        }
+        notifier.post()
+    }
+
+    /// 删除草稿试卷及其分区；试卷里新建的题目保留在题库中。不是草稿则拒绝。
+    public func discardExam(id: Int64) throws {
+        try pool.write { db in
+            guard let exam = try Exam.fetchOne(db, key: id) else { throw StoreError.notFound("试卷 \(id)") }
+            guard exam.status == .draft else { throw StoreError.invalid("只能丢弃草稿试卷") }
+            try ExamSection.filter(Column("examId") == id).deleteAll(db)
+            _ = try exam.delete(db)
+        }
+        notifier.post()
     }
 
     public func exams(stage: Int?) throws -> [Exam] {

@@ -100,4 +100,17 @@ private final class CountingNotifier: ChangeNotifier, @unchecked Sendable {
         }
         #expect(try store.stage(0).cooldownDays == 3)
     }
+
+    @Test func passLineOutOfRangeRejected() throws {
+        let (store, _) = try makeStore()
+        for bad in [0.5, 0, 101, 1e300] {
+            #expect(throws: StoreError.invalid("过关线必须在 1 到 100 之间")) {
+                try store.updateStageSettings(index: 0, passLine: bad, cooldownDays: nil, reward: nil)
+            }
+        }
+        #expect(try store.stage(0).passLine == 80)
+        try store.updateStageSettings(index: 0, passLine: 100, cooldownDays: nil, reward: nil)
+        try store.updateStageSettings(index: 0, passLine: 1, cooldownDays: nil, reward: nil)
+        #expect(try store.stage(0).passLine == 1)
+    }
 }

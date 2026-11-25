@@ -67,7 +67,11 @@ public enum ContentValidator {
         var errors = location(stage: p.stageIndex, moduleKey: p.moduleKey, stages: stages, modules: modules)
         if p.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("题干不能为空") }
         if p.referenceAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("参考答案不能为空") }
-        if !(p.maxScore > 0) { errors.append("满分必须大于 0") }
+        if !(p.maxScore > 0) {
+            errors.append("满分必须大于 0")
+        } else if p.maxScore > 1000 {
+            errors.append("满分不能超过 1000")
+        }
         if p.kind == .singleChoice || p.kind == .multipleChoice, (p.options?.count ?? 0) < 2 {
             errors.append("选择题至少需要 2 个选项")
         }
@@ -87,8 +91,10 @@ public enum ContentValidator {
         if e.timeLimitMinutes <= 0 { errors.append("限时必须大于 0 分钟") }
         if e.sections.isEmpty { errors.append("试卷至少需要 1 个分区") }
         if abs(e.sections.map(\.weight).reduce(0, +) - 100) > 0.01 { errors.append("各分区权重之和必须为 100") }
+        errors += duplicateIdErrors(e.sections.flatMap { $0.problemIds ?? [] })
         for (i, s) in e.sections.enumerated() {
             let name = "分区 \(i + 1)"
+            if !(s.weight > 0) { errors.append("\(name)权重必须大于 0") }
             switch s.source ?? .problems {
             case .problems:
                 if (s.problemIds?.count ?? 0) + (s.problems?.count ?? 0) == 0 { errors.append("\(name)至少需要 1 道题") }
@@ -100,6 +106,13 @@ public enum ContentValidator {
             }
         }
         return errors
+    }
+
+    /// 同一份作业或试卷里引用的已有题目 id 不能重复。
+    public static func duplicateIdErrors(_ ids: [Int64]) -> [String] {
+        var seen = Set<Int64>()
+        let duplicates = ids.filter { !seen.insert($0).inserted }
+        return duplicates.isEmpty ? [] : ["题目 id 重复：" + Array(Set(duplicates)).sorted().map(String.init).joined(separator: "、")]
     }
 
     private static func location(stage: Int, moduleKey: String?, stages: [Stage], modules: [Module]) -> [String] {

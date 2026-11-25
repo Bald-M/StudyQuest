@@ -69,6 +69,9 @@ extension StudyStore {
         if let cooldownDays, !(3...7).contains(cooldownDays) {
             throw StoreError.invalid("冷却期必须在 3 到 7 天之间")
         }
+        if let passLine, !(1...100).contains(passLine) {
+            throw StoreError.invalid("过关线必须在 1 到 100 之间")
+        }
         try pool.write { db in
             guard var stage = try Stage.fetchOne(db, key: index) else { throw StoreError.notFound("阶段 \(index)") }
             if let passLine { stage.passLine = passLine }
