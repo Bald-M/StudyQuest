@@ -74,8 +74,13 @@ public enum BackupService {
 
     /// 启动时、打开数据库之前调用。有待恢复文件时先校验：不合格就删掉它并抛错，原库不动；
     /// 合格则把原库挪到 `<db>.pre-restore`（其 -wal 改名为 `<db>.pre-restore-wal`，SQLite 打开时会自动合并；
-    /// 旧的 pre-restore 被替换），删掉 -shm，再把待恢复文件移进来。
+    /// 旧的 pre-restore 被替换），删掉 -shm，再把待恢复文件移进来；这一步失败时把原库挪回去再抛错。
     public static func applyPendingRestore(at dbURL: URL) throws {
+        try applyPendingRestore(at: dbURL) { try FileManager.default.moveItem(at: $0, to: $1) }
+    }
+
+    /// `moveItem` 可替换，供测试模拟最后一步移动失败。
+    static func applyPendingRestore(at dbURL: URL, moveItem: (_ from: URL, _ to: URL) throws -> Void) throws {
         let pending = pendingRestoreURL(for: dbURL)
         let fm = FileManager.default
         guard fm.fileExists(atPath: pending.path) else { return }
@@ -86,19 +91,31 @@ public enum BackupService {
             throw BackupError.pendingRestoreInvalid("待恢复的备份无法使用，已丢弃，继续使用现有数据：\(error)")
         }
 
-        let preRestore = preRestoreURL(for: dbURL).path
-        for path in [preRestore, preRestore + "-wal", preRestore + "-shm"] where fm.fileExists(atPath: path) {
+        let preRestore = preRestoreURL(for: dbURL)
+        let preRestoreWAL = URL(fileURLWithPath: preRestore.path + "-wal")
+        let wal = URL(fileURLWithPath: dbURL.path + "-wal")
+        for path in [preRestore.path, preRestoreWAL.path, preRestore.path + "-shm"] where fm.fileExists(atPath: path) {
             try fm.removeItem(atPath: path)
         }
+        var movedDB = false, movedWAL = false
         if fm.fileExists(atPath: dbURL.path) {
-            try fm.moveItem(atPath: dbURL.path, toPath: preRestore)
+            try moveItem(dbURL, preRestore)
+            movedDB = true
         }
-        if fm.fileExists(atPath: dbURL.path + "-wal") {
-            try fm.moveItem(atPath: dbURL.path + "-wal", toPath: preRestore + "-wal")
+        if fm.fileExists(atPath: wal.path) {
+            try moveItem(wal, preRestoreWAL)
+            movedWAL = true
         }
         if fm.fileExists(atPath: dbURL.path + "-shm") {
             try fm.removeItem(atPath: dbURL.path + "-shm")
         }
-        try fm.moveItem(at: pending, to: dbURL)
+        do {
+            try moveItem(pending, dbURL)
+        } catch {
+            // 最后一步失败：把原库与 -wal 放回原处，保持恢复前的样子；待恢复文件留着，下次启动再试
+            if movedDB { try? moveItem(preRestore, dbURL) }
+            if movedWAL { try? moveItem(preRestoreWAL, wal) }
+            throw error
+        }
     }
 }

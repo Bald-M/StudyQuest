@@ -62,6 +62,38 @@ private func cardCount(_ url: URL) throws -> Int {
         _ = try makeStore(at: dbURL)
     }
 
+    @Test func failedFinalMoveRestoresOriginal() throws {
+        struct MoveFailed: Error {}
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let backup = dir.appendingPathComponent("backup.sqlite")
+        let before: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            try BackupService.export(database: database, to: backup)
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "恢复前新增", back: "b", tags: nil)], source: "test")
+            before = try database.pool.read { try Card.fetchCount($0) }
+            try BackupService.scheduleRestore(from: backup, dbURL: dbURL)
+            try database.pool.close()
+        }
+        #expect(FileManager.default.fileExists(atPath: dbURL.path + "-wal"))
+        let pending = BackupService.pendingRestoreURL(for: dbURL)
+
+        #expect(throws: MoveFailed.self) {
+            try BackupService.applyPendingRestore(at: dbURL) { from, to in
+                if from == pending { throw MoveFailed() }
+                try FileManager.default.moveItem(at: from, to: to)
+            }
+        }
+
+        // 原库与 -wal 已放回原处，恢复前新增的卡片还在；待恢复文件保留，下次启动再试
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore-wal"))
+        #expect(FileManager.default.fileExists(atPath: pending.path))
+        #expect(try cardCount(dbURL) == before)
+    }
+
     @Test func corruptPendingRestoreKeepsLiveDB() throws {
         let dir = makeTempDir()
         let dbURL = dir.appendingPathComponent("studyquest.sqlite")
