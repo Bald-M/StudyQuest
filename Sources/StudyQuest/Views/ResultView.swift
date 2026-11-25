@@ -97,8 +97,9 @@ struct ResultView: View {
     // MARK: 分区
 
     private var sectionsBox: some View {
-        let floor = (context.stage?.minSectionRatio ?? 0.6) * 100
-        return GroupBox("分区得分（每区不低于 \(NumberText.whole(floor))%）") {
+        // 周测只看总分，没有分区最低线
+        let floor = context.exam?.kind == .weeklyQuiz ? 0 : (context.stage?.minSectionRatio ?? 0.6) * 100
+        return GroupBox(floor > 0 ? "分区得分（每区不低于 \(NumberText.whole(floor))%）" : "分区得分") {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(detail.sections.enumerated()), id: \.offset) { _, section in
                     let ok = section.percent >= floor

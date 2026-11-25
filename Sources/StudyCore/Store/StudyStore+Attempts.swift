@@ -356,7 +356,7 @@ extension StudyStore {
         let isFirstFinalize = attempt.status == .submitted
         let sections = try sectionScores(db, attempt: attempt, problems: problems, latest: latest)
 
-        // 1. 总分与过关：阶段考试用阶段过关线，周测 75，作业与错题重做不判过关
+        // 1. 总分与过关：阶段考试用阶段过关线与分区最低线，周测只看总分 75，作业与错题重做不判过关
         let exam = try attempt.examId.flatMap { try Exam.fetchOne(db, key: $0) }
         let stage = try exam.flatMap { try Stage.fetchOne(db, key: $0.stageIndex) }
         switch exam?.kind {
@@ -365,7 +365,7 @@ extension StudyStore {
             attempt.totalPercent = outcome.totalPercent
             attempt.passed = outcome.passed
         case .weeklyQuiz?:
-            let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: stage!.minSectionRatio)
+            let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: 0)
             attempt.totalPercent = outcome.totalPercent
             attempt.passed = outcome.passed
         case nil:

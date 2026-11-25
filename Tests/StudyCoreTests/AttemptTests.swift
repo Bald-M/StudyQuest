@@ -265,6 +265,20 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
         #expect(try store.attempts(examId: examId, status: .graded).map(\.id) == [attempt.id])
     }
 
+    @Test func weeklyQuizIgnoresSectionFloor() throws {
+        let store = try makeStore(clock: FixedClock(t0))
+        #expect(try store.stage(9).minSectionRatio == 0.8)
+        let section = SectionInput(title: "综合", weight: 100, source: .problems, problemIds: nil,
+                                   problems: [problem(stage: 9, prompt: "周测题", max: 100)])
+        let examId = try store.createExam(ExamInput(stageIndex: 9, kind: .weeklyQuiz, title: "周测", timeLimitMinutes: 30, sections: [section]),
+                                          source: "test").id
+        let attempt = try store.startExam(id: examId)
+        try submitAndGrade(store, attempt, scores: [76])
+        let graded = try store.attemptDetail(id: attempt.id!).attempt
+        #expect(graded.totalPercent == 76)
+        #expect(graded.passed == true)
+    }
+
     @Test func stageNineUsesMockInterviewAverage() throws {
         let (passed, passedDetail, _, _) = try runStageNine(interviewScores: [5, 90, 80, 70])
         #expect(passedDetail.sections.first?.percent == 80)

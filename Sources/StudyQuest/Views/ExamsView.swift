@@ -218,8 +218,8 @@ private struct StartConfirmation: View {
     }
 
     private var passRule: String {
+        guard row.exam.kind == .stageExam else { return "总分 ≥ 75 分才算通过" }
         let section = NumberText.whole(group.stage.minSectionRatio * 100)
-        let line = NumberText.whole(row.exam.kind == .stageExam ? group.stage.passLine : 75)
-        return "总分 ≥ \(line) 分且每个分区 ≥ \(section)% 才算通过"
+        return "总分 ≥ \(NumberText.whole(group.stage.passLine)) 分且每个分区 ≥ \(section)% 才算通过"
     }
 }
