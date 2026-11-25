@@ -40,8 +40,8 @@ private func xpEvent(_ store: StudyStore, _ key: String) throws -> XPEvent? {
     try store.pool.read { try XPEvent.filter(Column("dedupKey") == key).fetchOne($0) }
 }
 
-/// 阶段 9 试卷（模拟面试 50 + 算法 50），算法满分，给定已打分模拟面试。
-private func runStageNine(interviewScores: [Double]) throws -> (Attempt, AttemptDetail) {
+/// 阶段 9 试卷（模拟面试 50 + 算法 50），算法满分。面试按给定顺序从旧到新、都早于交卷。
+private func runStageNine(interviewScores: [Double]) throws -> (Attempt, AttemptDetail, StudyStore, FixedClock) {
     let clock = FixedClock(t0)
     let store = try makeStore(clock: clock)
     try store.pool.write { db in
@@ -59,7 +59,7 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
     let attempt = try store.startExam(id: examId)
     try submitAndGrade(store, attempt, scores: [10, 10])
     let detail = try store.attemptDetail(id: attempt.id!)
-    return (detail.attempt, detail)
+    return (detail.attempt, detail, store, clock)
 }
 
 @Suite struct AttemptTests {
@@ -266,18 +266,18 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
     }
 
     @Test func stageNineUsesMockInterviewAverage() throws {
-        let (passed, passedDetail) = try runStageNine(interviewScores: [90, 80, 70])
+        let (passed, passedDetail, _, _) = try runStageNine(interviewScores: [5, 90, 80, 70])
         #expect(passedDetail.sections.first?.percent == 80)
         #expect(passed.totalPercent == 90)
         #expect(passed.passed == true)
 
-        let (failed, failedDetail) = try runStageNine(interviewScores: [90, 80])
+        let (failed, failedDetail, _, _) = try runStageNine(interviewScores: [90, 80])
         #expect(failedDetail.sections.first?.percent == 0)
         #expect(failed.passed == false)
     }
 
     @Test func stageNineRequiresEachSection80() throws {
-        let (attempt, detail) = try runStageNine(interviewScores: [80, 70, 60])
+        let (attempt, detail, _, _) = try runStageNine(interviewScores: [100, 80, 70, 60])
         #expect(detail.sections.first?.percent == 70)
         #expect(attempt.totalPercent == 85)
         #expect(attempt.passed == false)
@@ -309,6 +309,84 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
         #expect(detail.items.first?.answer == "按时")
         #expect(try store.examDetail(id: examId, revealAnswers: false).exam.status == .submitted)
         #expect(try store.expireOverdueAttempts().isEmpty)
+
+        try store.recordGrade(attemptId: attempt.id!, problemId: problemId, score: 3, feedback: "", mistakes: [], grader: "test", raw: "")
+        #expect(try store.attemptDetail(id: attempt.id!).attempt.passed == false)
+        #expect(try xpEvent(store, "exam:\(examId)") == nil)
+    }
+
+    @Test func stageNineRegradeDoesNotUseLaterInterviews() throws {
+        let (failed, detail, store, clock) = try runStageNine(interviewScores: [90, 80])
+        #expect(failed.passed == false)
+        clock.current = t0.addingTimeInterval(3600)
+        try store.pool.write { db in
+            var later = MockInterview(transcript: [], score: 100, createdAt: clock.current)
+            try later.insert(db)
+        }
+        let algoProblem = try #require(detail.items.first).problem
+        try store.recordGrade(attemptId: failed.id!, problemId: algoProblem.id!, score: 10, feedback: "复判", mistakes: [], grader: "test", raw: "")
+        let regraded = try store.attemptDetail(id: failed.id!)
+        #expect(regraded.items.first?.grades.count == 2)
+        #expect(regraded.sections.first?.percent == 0)
+        #expect(regraded.attempt.passed == false)
+        #expect(try store.stage(9).status == .inProgress)
+        #expect(try xpEvent(store, "stage:9") == nil)
+    }
+
+    @Test func mistakeRedoRespectsSchedule() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let id = try store.createAssignment(
+            AssignmentInput(stageIndex: 0, moduleKey: nil, title: "作业", problemIds: nil, problems: [problem(prompt: "一")]),
+            source: "test")
+        try submitAndGrade(store, try store.startAssignment(id: id), scores: [5])
+        let mistake = try #require(store.mistakes(includeGraduated: false).first)
+
+        func expectBlocked(_ fragment: String) {
+            do {
+                _ = try store.startMistakeRedo(mistakeId: mistake.id!)
+                Issue.record("应当拒绝重做：\(fragment)")
+            } catch let StoreError.blocked(message) {
+                #expect(message.contains(fragment))
+            } catch {
+                Issue.record("意外错误 \(error)")
+            }
+        }
+
+        expectBlocked("还没到")
+        clock.current = t0.addingTimeInterval(oneDay)
+        let redo = try store.startMistakeRedo(mistakeId: mistake.id!)
+        expectBlocked("未判完")
+        try store.submit(attemptId: redo.id!)
+        expectBlocked("未判完")
+        let problemId = try #require(store.pendingGrading(attemptId: redo.id!).first).id!
+        try store.recordGrade(attemptId: redo.id!, problemId: problemId, score: 10, feedback: "", mistakes: [], grader: "test", raw: "")
+        expectBlocked("还没到")
+
+        clock.current = t0.addingTimeInterval(4 * oneDay)
+        try submitAndGrade(store, try store.startMistakeRedo(mistakeId: mistake.id!), scores: [10])
+        expectBlocked("毕业")
+    }
+
+    @Test func pendingGradingRejectsInProgress() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let id = try store.createAssignment(
+            AssignmentInput(stageIndex: 0, moduleKey: nil, title: "作业", problemIds: nil, problems: [problem(prompt: "一")]),
+            source: "test")
+        let attempt = try store.startAssignment(id: id)
+        let problemId = try #require(store.attemptDetail(id: attempt.id!).items.first).problem.id!
+        #expect(throws: StoreError.self) { try store.pendingGrading(attemptId: attempt.id!) }
+        #expect(throws: StoreError.self) {
+            try store.recordGrade(attemptId: attempt.id!, problemId: problemId, score: 5, feedback: "", mistakes: [], grader: "test", raw: "")
+        }
+
+        try store.submit(attemptId: attempt.id!)
+        #expect(try store.pendingGrading(attemptId: attempt.id!).first?.referenceAnswer == "答案")
+        try store.recordGrade(attemptId: attempt.id!, problemId: problemId, score: 15, feedback: "", mistakes: [], grader: "test", raw: "")
+        #expect(try store.attemptDetail(id: attempt.id!).items.first?.grades.last?.score == 10)
+        try store.recordGrade(attemptId: attempt.id!, problemId: problemId, score: -3, feedback: "", mistakes: [], grader: "test", raw: "")
+        #expect(try store.attemptDetail(id: attempt.id!).items.first?.grades.last?.score == 0)
     }
 
     @Test func gradedProblemsCountAsStudiedThisWeek() throws {

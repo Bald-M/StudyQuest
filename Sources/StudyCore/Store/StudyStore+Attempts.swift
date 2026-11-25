@@ -53,11 +53,19 @@ extension StudyStore {
         return attempt
     }
 
+    /// 按错题排期重做：未到期、已毕业、或已有未判完的重做时拒绝。
     public func startMistakeRedo(mistakeId: Int64) throws -> Attempt {
         let now = clock.now()
+        let today = clock.today()
         let attempt = try pool.write { db -> Attempt in
             guard let mistake = try Mistake.fetchOne(db, key: mistakeId) else { throw StoreError.notFound("错题 \(mistakeId)") }
-            guard !mistake.graduated else { throw StoreError.invalid("这道错题已经毕业") }
+            guard !mistake.graduated else { throw StoreError.blocked("这道错题已经毕业") }
+            guard mistake.dueDay <= today else { throw StoreError.blocked("还没到重做时间，\(mistake.dueDay) 起可以重做") }
+            let open = try Attempt.filter(
+                Column("mistakeId") == mistakeId
+                    && [AttemptStatus.inProgress.rawValue, AttemptStatus.submitted.rawValue].contains(Column("status"))
+            ).fetchCount(db)
+            guard open == 0 else { throw StoreError.blocked("这道错题已有一次未判完的重做") }
             var attempt = Attempt(kind: .mistakeRedo, mistakeId: mistakeId, status: .inProgress, startedAt: now)
             try attempt.insert(db)
             return attempt
@@ -128,6 +136,7 @@ extension StudyStore {
     public func pendingGrading(attemptId: Int64) throws -> [Problem] {
         try pool.read { db in
             let attempt = try Self.fetchAttempt(db, id: attemptId)
+            guard attempt.status != .inProgress else { throw StoreError.invalid("作答尚未提交，不能判卷") }
             let graded = Set(try Self.latestGrades(db, attemptId: attemptId).keys)
             return try Self.orderedProblems(db, ids: Self.problemIds(db, of: attempt).filter { !graded.contains($0) })
         }
@@ -296,15 +305,21 @@ extension StudyStore {
                 return SectionScore(title: section.title, earned: earned(section.problemIds), max: maxScore(section.problemIds),
                                     weight: section.weight)
             case .mockInterviewAverage:
-                return SectionScore(title: section.title, earned: try mockInterviewAverage(db), max: 100, weight: section.weight)
+                return SectionScore(title: section.title, earned: try mockInterviewAverage(db, asOf: attempt.submittedAt), max: 100, weight: section.weight)
             }
         }
     }
 
-    /// 最近 3 次已打分模拟面试的平均分；不足 3 次记 0。
-    private static func mockInterviewAverage(_ db: Database) throws -> Double {
+    /// 交卷时（含）之前最近 3 次已打分模拟面试的平均分；不足 3 次记 0。
+    /// 以交卷时间为界，复判重新结算时不会用到交卷之后的面试；未交卷时不设界。
+    private static func mockInterviewAverage(_ db: Database, asOf submittedAt: Date?) throws -> Double {
         let scores = try Double.fetchAll(
-            db, sql: "SELECT score FROM mockInterview WHERE score IS NOT NULL ORDER BY createdAt DESC, id DESC LIMIT 3")
+            db,
+            sql: """
+                SELECT score FROM mockInterview WHERE score IS NOT NULL AND (? IS NULL OR createdAt <= ?)
+                ORDER BY createdAt DESC, id DESC LIMIT 3
+                """,
+            arguments: [submittedAt, submittedAt])
         return scores.count == 3 ? scores.reduce(0, +) / 3 : 0
     }
 
