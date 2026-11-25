@@ -132,8 +132,9 @@ struct ExamsView: View {
             HStack {
                 Button("开始新面试") { interviewTarget = InterviewTarget(id: nil) }
                 Spacer()
-                if scored.isEmpty {
-                    Text("还没有打分的面试").foregroundStyle(.secondary)
+                // 阶段 9 只认最近 3 场的平均分，不足 3 场记 0
+                if scored.count < 3 {
+                    Text("还需 \(3 - scored.count) 场模拟面试才计分").foregroundStyle(.secondary)
                 } else {
                     Text("最近 \(scored.count) 场平均 \(NumberText.whole(scored.reduce(0, +) / Double(scored.count))) 分")
                         .foregroundStyle(.secondary)

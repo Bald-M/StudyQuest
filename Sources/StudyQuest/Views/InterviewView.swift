@@ -26,7 +26,9 @@ struct InterviewView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("模拟面试").font(.title3.bold())
-                if let recentAverage {
+                if recentCount < 3 {
+                    Text("还需 \(3 - recentCount) 场模拟面试才计分").font(.caption).foregroundStyle(.secondary)
+                } else if let recentAverage {
                     Text("最近 \(recentCount) 场平均 \(NumberText.whole(recentAverage)) 分").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
