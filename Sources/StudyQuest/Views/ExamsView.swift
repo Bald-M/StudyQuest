@@ -12,6 +12,7 @@ struct ExamsView: View {
     @State private var confirming: Confirmation?
     @State private var highlighted: Int64?
     @State private var interviewTarget: InterviewTarget?
+    @State private var discarding: AppModel.StageExamRow?
 
     struct Confirmation: Identifiable {
         var group: AppModel.ExamGroup
@@ -57,6 +58,14 @@ struct ExamsView: View {
         .sheet(item: $interviewTarget) { target in
             InterviewView(model: model, interviewId: target.id)
         }
+        .confirmationDialog("丢弃这份草稿试卷？",
+                            isPresented: Binding(get: { discarding != nil }, set: { if !$0 { discarding = nil } }),
+                            presenting: discarding) { row in
+            Button("丢弃", role: .destructive) { perform { try model.discardExam(id: row.id) } }
+            Button("取消", role: .cancel) {}
+        } message: { row in
+            Text("「\(row.exam.title)」会被删除，无法恢复。")
+        }
     }
 
     // MARK: 试卷
@@ -82,7 +91,7 @@ struct ExamsView: View {
             Button(attempt.status == .inProgress ? "继续作答" : "查看结果") { open(row) }
         } else if row.exam.status == .draft {
             Button("确认上线") { perform { try model.confirmExam(id: row.id) } }
-            Button("丢弃", role: .destructive) { perform { try model.discardExam(id: row.id) } }
+            Button("丢弃", role: .destructive) { discarding = row }
         } else if row.exam.status == .ready {
             Button("开考…") { confirming = Confirmation(group: group, row: row) }
         }

@@ -82,8 +82,13 @@ struct ResultView: View {
                     }
                 } else {
                     Label("待判卷（还有 \(pending) 题没有成绩）", systemImage: "hourglass").font(.title3)
-                    Button("重新判卷", action: onRegrade).disabled(busy)
-                    if regrading { ProgressView().controlSize(.small) }
+                    if regrading || attempt.id.map({ model.isGrading(attemptId: $0) }) == true {
+                        // 可能是后台补判在跑：显示进度，不再给一个点了没反应的按钮
+                        Label("正在判卷…", systemImage: "hourglass").foregroundStyle(.secondary)
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("重新判卷", action: onRegrade).disabled(busy)
+                    }
                     if let reason = attempt.id.flatMap({ model.gradingFailures[$0] }) {
                         Text("判卷失败：\(reason)").font(.callout).foregroundStyle(.red)
                     }
