@@ -8,7 +8,7 @@ do {
     let url = try ProcessInfo.processInfo.environment["STUDYQUEST_DB_PATH"].map { URL(fileURLWithPath: $0) }
         ?? AppDatabase.defaultURL()
     let store = try StudyStore(database: AppDatabase(url: url), clock: SystemClock(), notifier: DistributedChangeNotifier())
-    try await MCPServer(store: store).run()
+    try await MCPServer(store: store, databaseURL: url).run()
 } catch {
     FileHandle.standardError.write(Data("studyquest-mcp: \(error)\n".utf8))
     exit(1)

@@ -55,7 +55,7 @@ The tools can read progress and stages, create cards, problems, assignments, and
 
 ## Data & backup
 
-The database is `~/Library/Application Support/StudyQuest/studyquest.sqlite`. Export a backup and restore from one in Settings; a restore keeps the previous database as `studyquest.sqlite.pre-restore`. Set `STUDYQUEST_DB_PATH` to use another database file, e.g. for testing.
+The database is `~/Library/Application Support/StudyQuest/studyquest.sqlite`. Export a backup and restore from one in Settings; a restore keeps the previous database as `studyquest.sqlite.pre-restore`. Quit AI assistants using the StudyQuest MCP server before restoring. Set `STUDYQUEST_DB_PATH` to use another database file, e.g. for testing.
 
 ## Contributing
 

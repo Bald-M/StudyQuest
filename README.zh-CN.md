@@ -55,7 +55,7 @@ command = "<path>"
 
 ## 数据与备份
 
-数据库位于 `~/Library/Application Support/StudyQuest/studyquest.sqlite`。可在设置中导出备份、从备份恢复；恢复时旧库保留为 `studyquest.sqlite.pre-restore`。设置环境变量 `STUDYQUEST_DB_PATH` 可改用其他数据库文件，例如测试时。
+数据库位于 `~/Library/Application Support/StudyQuest/studyquest.sqlite`。可在设置中导出备份、从备份恢复；恢复时旧库保留为 `studyquest.sqlite.pre-restore`。恢复前请先退出正在使用 StudyQuest MCP 的 AI 助手。设置环境变量 `STUDYQUEST_DB_PATH` 可改用其他数据库文件，例如测试时。
 
 ## 参与贡献
 

@@ -180,7 +180,7 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         run {
             try BackupService.scheduleRestore(from: url, dbURL: model.dbURL)
-            message = "备份已就绪，退出并重新打开 StudyQuest 后生效。重启前的改动会被备份覆盖。"
+            message = "备份已就绪，退出并重新打开 StudyQuest 后生效。重启前的改动会被备份覆盖。恢复前请先退出正在使用 StudyQuest MCP 的 AI 助手。"
         }
     }
 
