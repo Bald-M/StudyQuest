@@ -285,6 +285,7 @@ private struct TodayOut: Encodable {
     var dueMistakes: Int
     var assignments: [Assignment]
     var readyExams: [Exam]
+    var draftExams: Int
     var pendingGradingAttempts: Int
     var autoGen: String
     var autoGenErrors: [String]
@@ -292,7 +293,7 @@ private struct TodayOut: Encodable {
     var progress: ProgressSummary
     init(_ t: TodaySummary) {
         dueCards = t.dueCards; deferredCards = t.deferredCards; dueMistakes = t.dueMistakes
-        assignments = t.assignments; readyExams = t.readyExams; pendingGradingAttempts = t.pendingGradingAttempts
+        assignments = t.assignments; readyExams = t.readyExams; draftExams = t.draftExams; pendingGradingAttempts = t.pendingGradingAttempts
         noteWritten = t.noteWritten; progress = t.progress
         switch t.autoGen {
         case .disabled: autoGen = "disabled"; autoGenErrors = []
