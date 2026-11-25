@@ -61,6 +61,10 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     /// 最近一次自动生成的结果；当天有数据库记录时以记录为准。
     private var lastAutoGen: AutoGenStatus = .done
     private var launchInFlight = false
+    /// 正在判卷的作答：交卷判卷、手动重新判卷、复判与回前台补判共用，同一作答同一时间只判一次。
+    @ObservationIgnored private var gradingInFlight: Set<Int64> = []
+    /// 本次启动中回前台已自动补判过的作答：每个作答每次启动最多自动补判一次，失败的留给手动重新判卷。
+    @ObservationIgnored private var autoGradedThisLaunch: Set<Int64> = []
     /// AppModel 与 App 同生命周期，只需持有观察者令牌。
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
@@ -127,8 +131,10 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         if registry.isConfigured(.grading) {
             let submitted = (try? store.attempts(examId: nil, status: .submitted)) ?? []
             for attempt in submitted {
-                guard let id = attempt.id, !((try? store.pendingGrading(attemptId: id)) ?? []).isEmpty else { continue }
-                _ = await grading.grade(attemptId: id)
+                guard let id = attempt.id, !autoGradedThisLaunch.contains(id),
+                      !((try? store.pendingGrading(attemptId: id)) ?? []).isEmpty else { continue }
+                autoGradedThisLaunch.insert(id)
+                _ = await gradeExclusively(attemptId: id)
             }
         }
         refresh()
@@ -243,8 +249,15 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     }
 
     func regrade(attemptId: Int64) async {
-        _ = await grading.grade(attemptId: attemptId)
+        _ = await gradeExclusively(attemptId: attemptId)
         refresh()
+    }
+
+    /// 该作答已在判卷时直接返回 nil，不重复发请求。
+    private func gradeExclusively(attemptId: Int64) async -> GradingReport? {
+        guard gradingInFlight.insert(attemptId).inserted else { return nil }
+        defer { gradingInFlight.remove(attemptId) }
+        return await grading.grade(attemptId: attemptId)
     }
 
     func pendingGradingCount(attemptId: Int64) throws -> Int { try store.pendingGrading(attemptId: attemptId).count }
@@ -348,7 +361,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     }
 
     func regrade(attemptId: Int64, problemId: Int64) async throws {
-        defer { refresh() }
+        guard gradingInFlight.insert(attemptId).inserted else { throw StoreError.blocked("这份作答正在判卷，请稍后再试") }
+        defer {
+            gradingInFlight.remove(attemptId)
+            refresh()
+        }
         try await grading.regrade(attemptId: attemptId, problemId: problemId)
     }
 
