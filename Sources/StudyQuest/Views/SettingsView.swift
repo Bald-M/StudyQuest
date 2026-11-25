@@ -337,8 +337,8 @@ private struct ProviderEditor: View {
 }
 
 private extension Error {
-    /// StudyCore 的错误枚举没有本地化描述，localizedDescription 只会给出"操作无法完成"，改用枚举本身的描述。
-    /// HTTP 错误不显示响应体：有的服务商会在报错里回显部分 Key。
+    /// 没有本地化描述的错误（localizedDescription 只会给出"操作无法完成"）改用枚举本身的描述。
+    /// HTTP 错误不显示响应体（有的服务商会在报错里回显部分 Key），并提示检查哪些配置。
     var displayText: String {
         if case AIError.http(let status, _)? = self as? AIError {
             return "连接失败（HTTP \(status)），请检查 Base URL、模型名和 API Key"

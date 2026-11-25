@@ -1,20 +1,8 @@
 import StudyCore
 import SwiftUI
 
-/// 把服务层错误转成给人看的一句话；不回显服务商响应体。
-func userMessage(_ error: Error) -> String {
-    switch error {
-    case AIError.notConfigured: return "先在设置中配置 AI 服务商"
-    case AIError.http(let status, _): return "AI 服务商返回错误（HTTP \(status)）"
-    case AIError.refusal: return "AI 拒绝了这次请求"
-    case AIError.truncated: return "AI 的回复被截断，请重试"
-    case AIError.emptyResponse: return "AI 没有返回内容，请重试"
-    case AIError.invalidJSON: return "AI 的回复格式不对，请重试"
-    case StoreError.notFound(let what): return "找不到\(what)"
-    case StoreError.invalid(let reason), StoreError.blocked(let reason): return reason
-    default: return error.localizedDescription
-    }
-}
+/// 把服务层错误转成给人看的一句话：AIError 与 StoreError 自带中文说明，不回显服务商响应体。
+func userMessage(_ error: Error) -> String { error.localizedDescription }
 
 /// 阶段考试门槛的说明文字；阶段详情与考试页共用。
 func gateDescription(_ gate: StageGateStatus, modules: [Module]) -> String {

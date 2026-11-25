@@ -82,6 +82,20 @@ public enum AIError: Error, Equatable {
     case invalidJSON(String)
 }
 
+/// 给用户看的中文说明。HTTP 错误不带响应体：有的服务商会在报错里回显部分 Key。
+extension AIError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConfigured: "先在设置中配置 AI 服务商"
+        case .http(let status, _): "连接失败（HTTP \(status)）"
+        case .refusal: "AI 拒绝了这次请求"
+        case .truncated: "AI 的回复被截断，请重试"
+        case .emptyResponse: "AI 没有返回内容，请重试"
+        case .invalidJSON: "AI 的回复格式不对，请重试"
+        }
+    }
+}
+
 extension HTTPClient {
     /// 发送并要求 2xx；否则抛 `AIError.http`（body 截到 500 字符）。
     func sendChecked(_ request: URLRequest) async throws -> Data {

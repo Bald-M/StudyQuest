@@ -108,6 +108,16 @@ private func makeStore() throws -> (StudyStore, URL) {
         }
     }
 
+    @Test func aiErrorDescriptionHasNoBody() {
+        let error: Error = AIError.http(status: 401, body: "invalid x-api-key sk-ant-secret")
+        #expect(error.localizedDescription == "连接失败（HTTP 401）")
+        #expect(!error.localizedDescription.contains("secret"))
+        #expect((AIError.notConfigured("grading") as Error).localizedDescription == "先在设置中配置 AI 服务商")
+        #expect((StoreError.invalid("过关线必须在 1 到 100 之间") as Error).localizedDescription == "过关线必须在 1 到 100 之间")
+        #expect((StoreError.blocked("时间已到") as Error).localizedDescription == "时间已到")
+        #expect((StoreError.notFound("试卷 3") as Error).localizedDescription == "找不到试卷 3")
+    }
+
     @Test func keyNeverStoredInDatabase() throws {
         let (store, dbURL) = try makeStore()
         let secrets = InMemorySecretStore()

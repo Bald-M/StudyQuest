@@ -7,6 +7,15 @@ public enum StoreError: Error, Equatable {
     case blocked(String)
 }
 
+extension StoreError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notFound(let what): "找不到\(what)"
+        case .invalid(let message), .blocked(let message): message
+        }
+    }
+}
+
 /// 所有业务读写的入口。App 与 MCP 服务器共用；每次写入提交后通知其他进程。
 public final class StudyStore: Sendable {
     let database: AppDatabase
