@@ -76,6 +76,10 @@ extension StudyStore {
             xpToday: try xp(on: today))
     }
 
+    public func dailyNote(day: Day) throws -> DailyNote? {
+        try pool.read { try DailyNote.fetchOne($0, key: day.rawValue) }
+    }
+
     /// 同日覆盖保存；首次保存奖励 +5 经验（dedupKey `note:<day>`）。
     public func saveDailyNote(_ text: String) throws {
         let today = clock.today()
@@ -83,6 +87,40 @@ extension StudyStore {
         try pool.write { db in
             try DailyNote(day: today, text: text).save(db)
             try Self.insertXP(db, dedupKey: "note:\(today.rawValue)", amount: XPRules.dailyNote, reason: .dailyNote, day: today, now: now)
+        }
+        notifier.post()
+    }
+}
+
+// MARK: 每日自动生成记录
+
+extension StudyStore {
+    public func autoGenRun(day: Day) throws -> AutoGenRun? {
+        try pool.read { try AutoGenRun.fetchOne($0, key: day.rawValue) }
+    }
+
+    /// 当天第一个调用者插入 "running" 记录并返回 true；已有记录返回 false。
+    public func claimAutoGenRun(day: Day) throws -> Bool {
+        let now = clock.now()
+        let claimed = try pool.write { db -> Bool in
+            try db.execute(
+                sql: "INSERT INTO autoGenRun (day, status, errors, createdAt) VALUES (?, 'running', '[]', ?) ON CONFLICT(day) DO NOTHING",
+                arguments: [day.rawValue, now])
+            return db.changesCount > 0
+        }
+        if claimed { notifier.post() }
+        return claimed
+    }
+
+    /// 无错误记为 "done"，否则 "failed"。记录不存在时插入（重试路径）。
+    public func finishAutoGenRun(day: Day, errors: [String]) throws {
+        let now = clock.now()
+        try pool.write { db in
+            var run = try AutoGenRun.fetchOne(db, key: day.rawValue)
+                ?? AutoGenRun(day: day, status: "running", errors: [], createdAt: now)
+            run.status = errors.isEmpty ? "done" : "failed"
+            run.errors = errors
+            try run.save(db)
         }
         notifier.post()
     }
