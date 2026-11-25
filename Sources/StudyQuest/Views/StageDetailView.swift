@@ -16,6 +16,18 @@ func userMessage(_ error: Error) -> String {
     }
 }
 
+/// 阶段考试门槛的说明文字；阶段详情与考试页共用。
+func gateDescription(_ gate: StageGateStatus, modules: [Module]) -> String {
+    switch gate {
+    case .open: "可以开考"
+    case .coolingDown(let until): "冷却中，\(until.rawValue) 可再考"
+    case .needsRelearn(let moduleId):
+        "需先完成「\(modules.first { $0.id == moduleId }?.title ?? "弱项模块")」的作业"
+    case .locked: "未解锁：需先通过上一阶段的考试"
+    case .alreadyPassed: "本阶段已通过"
+    }
+}
+
 struct StageDetailView: View {
     let model: AppModel
     let stageIndex: Int
@@ -26,6 +38,7 @@ struct StageDetailView: View {
     @State private var generating: String?
     @State private var errors: [String: String] = [:]
     @State private var moduleError: String?
+    @State private var showInterview = false
 
     var body: some View {
         Group {
@@ -44,6 +57,7 @@ struct StageDetailView: View {
         .navigationTitle(detail.map { "阶段 \($0.stage.index)：\($0.stage.title)" } ?? "阶段")
         .onAppear(perform: reload)
         .onChange(of: model.revision) { reload() }
+        .sheet(isPresented: $showInterview) { InterviewView(model: model, interviewId: nil) }
     }
 
     // MARK: 简介与过关规则
@@ -139,16 +153,7 @@ struct StageDetailView: View {
 
     // MARK: 阶段考试
 
-    private func gateText(_ detail: AppModel.StageDetail) -> String {
-        switch detail.gate {
-        case .open: "可以开考"
-        case .coolingDown(let until): "冷却中，\(until.rawValue) 可再考"
-        case .needsRelearn(let moduleId):
-            "需先完成「\(detail.modules.first { $0.id == moduleId }?.title ?? "弱项模块")」的作业"
-        case .locked: "未解锁：需先通过上一阶段的考试"
-        case .alreadyPassed: "本阶段已通过"
-        }
-    }
+    private func gateText(_ detail: AppModel.StageDetail) -> String { gateDescription(detail.gate, modules: detail.modules) }
 
     private func examSection(_ detail: AppModel.StageDetail) -> some View {
         Section("阶段考试（Boss）") {
@@ -157,6 +162,9 @@ struct StageDetailView: View {
             HStack {
                 generateButton("生成阶段考试", key: "exam") { try await model.generateStageExam(stage: detail.stage.index) }
                 if let message = errors["exam"] { Text(message).font(.caption).foregroundStyle(.red) }
+            }
+            if detail.stage.index == 9 {
+                Button("模拟面试") { showInterview = true }
             }
             ForEach(detail.exams) { row in
                 VStack(alignment: .leading, spacing: 4) {

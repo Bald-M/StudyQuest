@@ -49,8 +49,9 @@ struct RootView: View {
                 case .map: MapView(model: model)
                 case .mistakes: MistakesView(model: model)
                 case .practice: PracticeView(model: model)
+                case .exams: ExamsView(model: model)
+                case .growth: GrowthView(model: model)
                 case .settings: SettingsView(model: model)
-                default: PlaceholderView(item: model.selection)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -76,15 +77,5 @@ struct RootView: View {
             }
         }
         .task { await model.onLaunchOrForeground() }
-    }
-}
-
-/// 尚未实现的页面；后续任务逐个替换。
-struct PlaceholderView: View {
-    let item: SidebarItem
-
-    var body: some View {
-        ContentUnavailableView(item.title, systemImage: item.icon, description: Text("即将推出"))
-            .navigationTitle(item.title)
     }
 }

@@ -545,4 +545,9 @@ extension StudyStore {
     public func mockInterview(id: Int64) throws -> MockInterview? {
         try pool.read { try MockInterview.fetchOne($0, key: id) }
     }
+
+    /// 全部模拟面试，最新的在前。
+    public func mockInterviews() throws -> [MockInterview] {
+        try pool.read { try MockInterview.order(Column("createdAt").desc, Column("id").desc).fetchAll($0) }
+    }
 }

@@ -23,6 +23,15 @@ private func grade(_ store: StudyStore, _ attempt: Attempt, score: Double) throw
 }
 
 struct AttemptQueryTests {
+    @Test func mockInterviewsNewestFirst() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        #expect(try store.mockInterviews().isEmpty)
+        let older = try store.saveMockInterview(MockInterview(transcript: [], createdAt: t0))
+        let newer = try store.saveMockInterview(MockInterview(transcript: [ChatTurn(role: "user", content: "你好")], score: 80, createdAt: t0.addingTimeInterval(60)))
+        #expect(try store.mockInterviews().map(\.id) == [newer.id, older.id])
+    }
+
     @Test func attemptsByAssignmentNewestFirst() throws {
         let clock = FixedClock(t0)
         let store = try makeStore(clock: clock)

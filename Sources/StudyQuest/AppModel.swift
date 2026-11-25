@@ -297,6 +297,100 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         refresh()
     }
 
+    // MARK: 考试与结果
+
+    /// 考试页一个阶段的分组：该阶段的全部试卷、当前门槛与模块（门槛原因需要模块名）。
+    struct ExamGroup: Identifiable {
+        var stage: Stage
+        var modules: [Module]
+        var gate: StageGateStatus
+        var rows: [StageExamRow]
+        var id: Int { stage.index }
+    }
+
+    func examGroups() throws -> [ExamGroup] {
+        try store.stages().compactMap { stage in
+            let exams = try store.exams(stage: stage.index).reversed()
+            guard !exams.isEmpty else { return nil }
+            let gate = try store.stageGateStatus(stage: stage.index)  // 先于读模块：会同步 needsRelearn
+            let rows = try exams.map { StageExamRow(exam: $0, attempts: try store.attempts(examId: $0.id, status: nil)) }
+            return ExamGroup(stage: stage, modules: try store.modules(stage: stage.index), gate: gate, rows: rows)
+        }
+    }
+
+    /// 开考；已有作答则继续或查看，不会开第二次。先处理过期作答，过期的会直接显示成绩。
+    func openExam(id: Int64) throws {
+        _ = try store.expireOverdueAttempts()
+        if let existing = try store.attempts(examId: id, status: nil).first {
+            activeAttemptId = existing.id
+        } else {
+            activeAttemptId = try store.startExam(id: id).id
+        }
+        refresh()
+    }
+
+    func now() -> Date { store.clock.now() }
+
+    /// 结果页要用的试卷、阶段，以及未通过时的冷却状态。
+    struct ResultContext {
+        var exam: Exam?
+        var stage: Stage?
+        var gate: StageGateStatus?
+    }
+
+    func resultContext(attempt: Attempt) throws -> ResultContext {
+        guard attempt.kind == .exam, let examId = attempt.examId, let exam = try store.exams(stage: nil).first(where: { $0.id == examId }) else {
+            return ResultContext()
+        }
+        let stage = try store.stage(exam.stageIndex)
+        let gate = exam.kind == .stageExam && attempt.passed == false ? try store.stageGateStatus(stage: exam.stageIndex) : nil
+        return ResultContext(exam: exam, stage: stage, gate: gate)
+    }
+
+    func regrade(attemptId: Int64, problemId: Int64) async throws {
+        defer { refresh() }
+        try await grading.regrade(attemptId: attemptId, problemId: problemId)
+    }
+
+    func saveReflection(attemptId: Int64, text: String) throws {
+        try store.saveReflection(attemptId: attemptId, text: text)
+    }
+
+    // MARK: 模拟面试
+
+    func mockInterviews() throws -> [MockInterview] { try store.mockInterviews() }
+
+    func mockInterview(id: Int64) throws -> MockInterview? { try store.mockInterview(id: id) }
+
+    func interviewReply(interviewId: Int64?, message: String) async throws -> Int64 {
+        defer { refresh() }
+        return try await tutor.interviewReply(interviewId: interviewId, userMessage: message).interviewId
+    }
+
+    func finishInterview(id: Int64) async throws -> MockInterview {
+        defer { refresh() }
+        return try await tutor.finishInterview(id: id)
+    }
+
+    // MARK: 成长
+
+    struct ExamScore: Identifiable {
+        var id: Int64
+        var title: String
+        var gradedAt: Date
+        var percent: Double
+        var passed: Bool?
+    }
+
+    /// 已判卷考试的得分，按判卷时间升序。
+    func examScores() throws -> [ExamScore] {
+        let titles = Dictionary(uniqueKeysWithValues: try store.exams(stage: nil).compactMap { e in e.id.map { ($0, e.title) } })
+        return try store.attempts(examId: nil, status: .graded).compactMap { attempt in
+            guard attempt.kind == .exam, let id = attempt.id, let at = attempt.gradedAt, let percent = attempt.totalPercent else { return nil }
+            return ExamScore(id: id, title: attempt.examId.flatMap { titles[$0] } ?? "考试", gradedAt: at, percent: percent, passed: attempt.passed)
+        }.sorted { $0.gradedAt < $1.gradedAt }
+    }
+
     private func subscribe() {
         let dataChanged = DistributedNotificationCenter.default().addObserver(forName: DistributedChangeNotifier.name, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refresh() }

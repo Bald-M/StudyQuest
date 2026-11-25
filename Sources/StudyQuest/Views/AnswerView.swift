@@ -2,7 +2,7 @@ import StudyCore
 import SwiftUI
 
 /// 按作答 id 渲染的作答页：作业、错题重做与（Task 17）考试共用。
-/// 作答中显示各题输入并自动保存；交卷后判卷，结果显示在 `AttemptResultSummary`。
+/// 作答中显示各题输入并自动保存；交卷后判卷，结果显示在 `ResultView`；考试作答中顶部带倒计时，到点自动交卷。
 struct AnswerView: View {
     let model: AppModel
     let attemptId: Int64
@@ -30,6 +30,9 @@ struct AnswerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if answering, detail?.attempt.kind == .exam, let deadline = detail?.attempt.deadline {
+                ExamSessionView(deadline: deadline, now: model.now) { Task { await submit(timedOut: true) } }
+            }
             Divider()
             if let detail {
                 ScrollView {
@@ -40,7 +43,8 @@ struct AnswerView: View {
                                 problemView(number: offset + 1, item.problem)
                             }
                         } else {
-                            AttemptResultSummary(detail: detail, pending: pending, regrading: working, onRegrade: { Task { await regrade() } })
+                            ResultView(model: model, detail: detail, pending: pending, regrading: working,
+                                       onRegrade: { Task { await regrade() } }, onChanged: reload)
                         }
                     }
                     .padding(20)
@@ -243,9 +247,11 @@ struct AnswerView: View {
 
     private static let unsavedNotice = "有答案未能保存，请重试"
 
-    private func submit() async {
+    /// `timedOut`：考试倒计时到点的自动交卷。保存已被截止时间挡住时不再等待，按已保存的答案交卷。
+    private func submit(timedOut: Bool = false) async {
+        guard !working else { return }
         flushAll()
-        guard dirty.isEmpty else {
+        guard timedOut || dirty.isEmpty else {
             notice = Self.unsavedNotice
             return
         }
@@ -253,7 +259,7 @@ struct AnswerView: View {
         defer { working = false }
         do {
             try await model.submitAndGrade(attemptId: attemptId)
-            notice = nil
+            notice = timedOut ? "时间已到，已自动交卷" : nil
         } catch {
             notice = userMessage(error)
         }
