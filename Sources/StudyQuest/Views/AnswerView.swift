@@ -15,6 +15,8 @@ struct AnswerView: View {
     @State private var answers: [Int64: String] = [:]
     @State private var dirty: Set<Int64> = []
     @State private var saveTasks: [Int64: Task<Void, Never>] = [:]
+    /// 每题第一次未保存修改的时间：连续输入时据此保证最长 5 秒存一次。
+    @State private var dirtySince: [Int64: Date] = [:]
     @State private var notice: String?
     @State private var hints: [Int64: String] = [:]
     @State private var hintLoading: Int64?
@@ -33,7 +35,9 @@ struct AnswerView: View {
             header
             if answering, detail?.attempt.kind == .exam, let deadline = detail?.attempt.deadline {
                 ExamSessionView(deadline: deadline, now: model.now, failed: timeoutFailed,
-                                onRetry: { Task { await submit(timedOut: true) } }) { Task { await submit(timedOut: true) } }
+                                onRetry: { Task { await submit(timedOut: true) } }, onNearExpiry: flushAll) {
+                    Task { await submit(timedOut: true) }
+                }
             }
             Divider()
             if let detail {
@@ -197,15 +201,22 @@ struct AnswerView: View {
         Set((answers[id] ?? "").split(separator: ",").map(String.init))
     }
 
-    // MARK: 自动保存（每题防抖 1 秒）
+    // MARK: 自动保存（每题防抖 1 秒，连续输入最长 5 秒必存一次）
+
+    private static let debounce: TimeInterval = 1
+    private static let maxWait: TimeInterval = 5
 
     private func set(_ id: Int64, _ value: String) {
         guard answers[id] != value else { return }
         answers[id] = value
         dirty.insert(id)
+        let now = model.now()
+        let since = dirtySince[id] ?? now
+        dirtySince[id] = since
+        let delay = min(Self.debounce, max(0, Self.maxWait - now.timeIntervalSince(since)))
         saveTasks[id]?.cancel()
         saveTasks[id] = Task {
-            try? await Task.sleep(for: .seconds(1))
+            try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             save(id)
         }
@@ -214,6 +225,7 @@ struct AnswerView: View {
     private func save(_ id: Int64) {
         saveTasks[id]?.cancel()
         saveTasks[id] = nil
+        dirtySince[id] = nil
         guard dirty.remove(id) != nil, answering else { return }
         do {
             try model.saveAnswer(attemptId: attemptId, problemId: id, answer: answers[id] ?? "")

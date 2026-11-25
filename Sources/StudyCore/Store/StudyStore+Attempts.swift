@@ -14,6 +14,9 @@ public struct AttemptDetail: Sendable {
 }
 
 extension StudyStore {
+    /// 截止后仍接受保存的宽限秒数：界面的自动保存有防抖，到点那一刻的最后几次输入可能稍晚才写入。
+    public static let examSaveGrace: TimeInterval = 5
+
     // MARK: 开始作答
 
     public func startAssignment(id: Int64) throws -> Attempt {
@@ -76,13 +79,13 @@ extension StudyStore {
 
     // MARK: 作答与交卷
 
-    /// 已过截止时间则不保存：先自动交卷（与 `expireOverdueAttempts` 相同），提交后再抛 `.blocked`。
+    /// 截止后 `examSaveGrace` 秒内仍保存；再晚则不保存：先自动交卷（与 `expireOverdueAttempts` 相同），提交后再抛 `.blocked`。
     public func saveAnswer(attemptId: Int64, problemId: Int64, answer: String) throws {
         let now = clock.now()
         let expired = try pool.write { db -> Bool in
             let attempt = try Self.fetchAttempt(db, id: attemptId)
             guard attempt.status == .inProgress else { throw StoreError.invalid("作答已提交，不能再修改答案") }
-            if let deadline = attempt.deadline, deadline < now {
+            if let deadline = attempt.deadline, deadline.addingTimeInterval(Self.examSaveGrace) < now {
                 try Self.submit(db, attemptId: attemptId, now: now)
                 return true
             }
@@ -107,12 +110,13 @@ extension StudyStore {
         notifier.post()
     }
 
-    /// 已过截止时间仍在作答中的作答自动交卷（保留已保存的答案），返回其 id。
+    /// 已过截止时间（含保存宽限）仍在作答中的作答自动交卷（保留已保存的答案），返回其 id。
     public func expireOverdueAttempts() throws -> [Int64] {
         let now = clock.now()
+        let cutoff = now.addingTimeInterval(-Self.examSaveGrace)
         let ids = try pool.write { db -> [Int64] in
             let overdue = try Attempt
-                .filter(Column("status") == AttemptStatus.inProgress.rawValue && Column("deadline") < now)
+                .filter(Column("status") == AttemptStatus.inProgress.rawValue && Column("deadline") < cutoff)
                 .order(Column("id")).fetchAll(db)
             for attempt in overdue { try Self.submit(db, attemptId: attempt.id!, now: now) }
             return overdue.map { $0.id! }

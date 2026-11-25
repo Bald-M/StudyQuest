@@ -315,6 +315,31 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
         #expect(try xpEvent(store, "exam:\(examId)") == nil)
     }
 
+    @Test func saveWithinGraceWindowIsStored() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem(prompt: "一")])
+        let examId = try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "周测", timeLimitMinutes: 30, sections: [section]),
+                                          source: "test").id
+        let attempt = try store.startExam(id: examId)
+        let problemId = try #require(store.attemptDetail(id: attempt.id!).items.first).problem.id!
+
+        // 截止后 4 秒内（宽限 5 秒）仍可保存，作答保持进行中，过期扫描也不提前交卷
+        clock.current = t0.addingTimeInterval(30 * 60 + 4)
+        try store.saveAnswer(attemptId: attempt.id!, problemId: problemId, answer: "最后一句")
+        #expect(try store.expireOverdueAttempts().isEmpty)
+        var detail = try store.attemptDetail(id: attempt.id!)
+        #expect(detail.attempt.status == .inProgress)
+        #expect(detail.items.first?.answer == "最后一句")
+
+        // 超过宽限：拒绝并自动交卷，保留宽限内保存的答案
+        clock.current = t0.addingTimeInterval(30 * 60 + 6)
+        #expect(throws: StoreError.self) { try store.saveAnswer(attemptId: attempt.id!, problemId: problemId, answer: "太迟") }
+        detail = try store.attemptDetail(id: attempt.id!)
+        #expect(detail.attempt.status == .submitted)
+        #expect(detail.items.first?.answer == "最后一句")
+    }
+
     @Test func stageNineRegradeDoesNotUseLaterInterviews() throws {
         let (failed, detail, store, clock) = try runStageNine(interviewScores: [90, 80])
         #expect(failed.passed == false)
