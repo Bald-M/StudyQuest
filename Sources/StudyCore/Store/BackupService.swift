@@ -94,27 +94,33 @@ public enum BackupService {
         let preRestore = preRestoreURL(for: dbURL)
         let preRestoreWAL = URL(fileURLWithPath: preRestore.path + "-wal")
         let wal = URL(fileURLWithPath: dbURL.path + "-wal")
+        // 上次恢复如果中途出错、回滚也没成功，原库可能只剩在 .pre-restore 里。
+        // 这时它是唯一的副本，先放回原位，绝不能在下面清理旧 .pre-restore 时删掉。
+        if !fm.fileExists(atPath: dbURL.path), fm.fileExists(atPath: preRestore.path) {
+            try moveItem(preRestore, dbURL)
+            if fm.fileExists(atPath: preRestoreWAL.path) { try moveItem(preRestoreWAL, wal) }
+        }
         for path in [preRestore.path, preRestoreWAL.path, preRestore.path + "-shm"] where fm.fileExists(atPath: path) {
             try fm.removeItem(atPath: path)
         }
         var movedDB = false, movedWAL = false
-        if fm.fileExists(atPath: dbURL.path) {
-            try moveItem(dbURL, preRestore)
-            movedDB = true
-        }
-        if fm.fileExists(atPath: wal.path) {
-            try moveItem(wal, preRestoreWAL)
-            movedWAL = true
-        }
-        if fm.fileExists(atPath: dbURL.path + "-shm") {
-            try fm.removeItem(atPath: dbURL.path + "-shm")
-        }
         do {
+            if fm.fileExists(atPath: dbURL.path) {
+                try moveItem(dbURL, preRestore)
+                movedDB = true
+            }
+            if fm.fileExists(atPath: wal.path) {
+                try moveItem(wal, preRestoreWAL)
+                movedWAL = true
+            }
+            if fm.fileExists(atPath: dbURL.path + "-shm") {
+                try fm.removeItem(atPath: dbURL.path + "-shm")
+            }
             try moveItem(pending, dbURL)
         } catch {
-            // 最后一步失败：把原库与 -wal 放回原处，保持恢复前的样子；待恢复文件留着，下次启动再试
-            if movedDB { try? moveItem(preRestore, dbURL) }
+            // 任何一步失败：把原库与 -wal 放回原处，保持恢复前的样子；待恢复文件留着，下次启动再试
             if movedWAL { try? moveItem(preRestoreWAL, wal) }
+            if movedDB { try? moveItem(preRestore, dbURL) }
             throw error
         }
     }
