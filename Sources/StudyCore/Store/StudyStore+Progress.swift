@@ -87,3 +87,29 @@ extension StudyStore {
         notifier.post()
     }
 }
+
+// MARK: 服务商配置（API Key 不在这里，见 SecretStore）
+
+extension StudyStore {
+    public func providerConfigs() throws -> [ProviderConfig] {
+        try pool.read { try ProviderConfig.order(Column("name"), Column("id")).fetchAll($0) }
+    }
+
+    public func saveProviderConfig(_ config: ProviderConfig) throws {
+        try pool.write { try config.save($0) }
+        notifier.post()
+    }
+
+    /// 同时清掉指向它的角色设置。
+    public func deleteProviderConfig(id: String) throws {
+        try pool.write { db in
+            _ = try ProviderConfig.deleteOne(db, key: id)
+            for key in [SettingKey.gradingProviderId, .generationProviderId] {
+                try db.execute(
+                    sql: "UPDATE appSetting SET value = ? WHERE key = ? AND value = ?",
+                    arguments: [key.defaultValue, key.rawValue, id])
+            }
+        }
+        notifier.post()
+    }
+}
