@@ -22,7 +22,7 @@ extension StudyStore {
     }
 
     @discardableResult
-    private static func insertXP(_ db: Database, dedupKey: String, amount: Int, reason: XPReason, day: Day, now: Date) throws -> Bool {
+    static func insertXP(_ db: Database, dedupKey: String, amount: Int, reason: XPReason, day: Day, now: Date) throws -> Bool {
         try db.execute(
             sql: """
                 INSERT INTO xpEvent (dedupKey, amount, reason, day, createdAt)

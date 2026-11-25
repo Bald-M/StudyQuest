@@ -51,10 +51,16 @@ extension StudyStore {
     }
 
     public func modulesStudiedThisWeek() throws -> [Module] {
-        // Task 8 会在此基础上加入"有已判卷作答"的模块。
+        // 最近 7 天开始或完成的模块，以及最近 7 天有题目被判卷的模块。
         let cutoff = clock.now().addingTimeInterval(-7 * 24 * 3600)
         return try pool.read {
-            try Module.filter(Column("startedAt") >= cutoff || Column("completedAt") >= cutoff)
+            try Module.filter(
+                sql: """
+                    startedAt >= :cutoff OR completedAt >= :cutoff OR id IN (
+                        SELECT problem.moduleId FROM questionGrade JOIN problem ON problem.id = questionGrade.problemId
+                        WHERE questionGrade.createdAt >= :cutoff AND problem.moduleId IS NOT NULL)
+                    """,
+                arguments: ["cutoff": cutoff])
                 .order(Column("stageIndex"), Column("order")).fetchAll($0)
         }
     }
