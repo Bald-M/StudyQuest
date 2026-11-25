@@ -115,6 +115,7 @@ extension StudyStore {
             stages: stages, modules: modules)
         if input.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("作业标题不能为空") }
         if (input.problemIds?.count ?? 0) + (input.problems?.count ?? 0) == 0 { errors.append("作业至少需要 1 道题") }
+        errors += ContentValidator.duplicateIdErrors(input.problemIds ?? [])
         errors += (input.problems ?? []).flatMap { ContentValidator.validate($0, stages: stages, modules: modules) }
         try Self.require(errors)
         let now = clock.now()

@@ -51,6 +51,44 @@ private func problem(stage: Int = 0, prompt: String = "题干", kind: ProblemKin
         #expect(second.warnings.contains { $0.contains("重复") })
     }
 
+    @Test func duplicateProblemIdsRejected() throws {
+        let store = try makeStore()
+        let ids = try store.createProblems([problem(prompt: "甲"), problem(prompt: "乙")], source: "test")
+        #expect(throws: StoreError.self) {
+            try store.createAssignment(AssignmentInput(stageIndex: 0, moduleKey: nil, title: "重复", problemIds: [ids[0], ids[0]], problems: nil),
+                                       source: "test")
+        }
+        let a = SectionInput(title: "A", weight: 50, source: .problems, problemIds: [ids[0]], problems: nil)
+        let b = SectionInput(title: "B", weight: 50, source: .problems, problemIds: [ids[1], ids[0]], problems: nil)
+        #expect(throws: StoreError.self) {
+            try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "重复", timeLimitMinutes: 20, sections: [a, b]), source: "test")
+        }
+        #expect(try store.exams(stage: nil).isEmpty)
+        #expect(try store.openAssignments().allSatisfy { $0.title != "重复" })
+    }
+
+    @Test func maxScoreAbove1000Rejected() throws {
+        let store = try makeStore()
+        let stages = try store.stages()
+        let modules = try stages.flatMap { try store.modules(stage: $0.index) }
+        #expect(ContentValidator.validate(problem(max: 1000), stages: stages, modules: modules).isEmpty)
+        for bad in [1000.5, 1e300, Double.infinity] {
+            #expect(ContentValidator.validate(problem(max: bad), stages: stages, modules: modules) == ["满分不能超过 1000"])
+        }
+    }
+
+    @Test func sectionWeightMustBePositive() throws {
+        let store = try makeStore()
+        let stages = try store.stages()
+        let modules = try stages.flatMap { try store.modules(stage: $0.index) }
+        let sections = [SectionInput(title: "A", weight: 120, source: .problems, problemIds: nil, problems: [problem()]),
+                        SectionInput(title: "B", weight: -20, source: .problems, problemIds: nil, problems: [problem(prompt: "二")]),
+                        SectionInput(title: "C", weight: 0, source: .problems, problemIds: nil, problems: [problem(prompt: "三")])]
+        let errors = ContentValidator.validate(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "T", timeLimitMinutes: 20, sections: sections),
+                                               stages: stages, modules: modules)
+        #expect(errors == ["分区 2权重必须大于 0", "分区 3权重必须大于 0"])
+    }
+
     @Test func draftCannotBeStarted() throws {
         let store = try makeStore()
         let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem()])
