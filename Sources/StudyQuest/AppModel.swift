@@ -183,9 +183,117 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         return mistakes.map { MistakeRow(mistake: $0, problem: problems[$0.problemId], lastPercent: lastPercent[$0.id ?? 0]) }
     }
 
+    /// 已有未判完的重做则继续它，否则新开一次。
     func startMistakeRedo(mistakeId: Int64) throws {
+        if let open = try store.openRedoAttempt(mistakeId: mistakeId) {
+            activeAttemptId = open.id
+            return
+        }
         let attempt = try store.startMistakeRedo(mistakeId: mistakeId)
         activeAttemptId = attempt.id
+        refresh()
+    }
+
+    // MARK: 练习与作业
+
+    /// 练习页一行：作业与它最近一次已判卷的得分。
+    struct AssignmentRow: Identifiable {
+        var assignment: Assignment
+        var lastPercent: Double?
+        var id: Int64 { assignment.id ?? 0 }
+    }
+
+    /// 未完成的在前（日期倒序），已完成的在后。
+    func assignmentRows() throws -> (open: [AssignmentRow], completed: [AssignmentRow]) {
+        var lastPercent: [Int64: Double] = [:]
+        for attempt in try store.attempts(examId: nil, status: .graded) {
+            if let id = attempt.assignmentId, lastPercent[id] == nil, let percent = attempt.totalPercent { lastPercent[id] = percent }
+        }
+        let rows = { (list: [Assignment]) in list.map { AssignmentRow(assignment: $0, lastPercent: lastPercent[$0.id ?? 0]) } }
+        return (rows(try store.openAssignments().reversed()), rows(try store.completedAssignments()))
+    }
+
+    /// 打开作业：有未判完的作答就继续，否则有已判卷的就看结果，都没有则新开一次。
+    func openAssignment(id: Int64) throws {
+        let attempts = try store.attempts(assignmentId: id)
+        if let existing = attempts.first(where: { $0.status != .graded }) ?? attempts.first {
+            activeAttemptId = existing.id
+        } else {
+            activeAttemptId = try store.startAssignment(id: id).id
+            refresh()
+        }
+    }
+
+    // MARK: 作答
+
+    func attemptDetail(id: Int64) throws -> AttemptDetail { try store.attemptDetail(id: id) }
+
+    func saveAnswer(attemptId: Int64, problemId: Int64, answer: String) throws {
+        try store.saveAnswer(attemptId: attemptId, problemId: problemId, answer: answer)
+    }
+
+    /// 交卷并判卷；判卷从不抛错，失败的题保持待判。
+    func submitAndGrade(attemptId: Int64) async throws {
+        // 自动保存撞上截止时间时已被自动交卷，这里不再重复交
+        if try store.attemptDetail(id: attemptId).attempt.status == .inProgress {
+            try store.submit(attemptId: attemptId)
+        }
+        refresh()
+        await regrade(attemptId: attemptId)
+    }
+
+    func regrade(attemptId: Int64) async {
+        _ = await grading.grade(attemptId: attemptId)
+        refresh()
+    }
+
+    func pendingGradingCount(attemptId: Int64) throws -> Int { try store.pendingGrading(attemptId: attemptId).count }
+
+    func hint(problemId: Int64, currentAnswer: String) async throws -> String {
+        try await tutor.hint(problemId: problemId, currentAnswer: currentAnswer)
+    }
+
+    // MARK: 地图与阶段详情
+
+    func stages() throws -> [Stage] { try store.stages() }
+
+    struct StageExamRow: Identifiable {
+        var exam: Exam
+        var attempts: [Attempt]
+        var id: Int64 { exam.id ?? 0 }
+    }
+
+    struct StageDetail {
+        var stage: Stage
+        var modules: [Module]
+        var gate: StageGateStatus
+        var exams: [StageExamRow]
+    }
+
+    func stageDetail(_ index: Int) throws -> StageDetail {
+        let gate = try store.stageGateStatus(stage: index)  // 会同步 needsRelearn，须先于读模块
+        let exams = try store.exams(stage: index).filter { $0.kind == .stageExam }
+            .reversed().map { StageExamRow(exam: $0, attempts: try store.attempts(examId: $0.id, status: nil)) }
+        return StageDetail(stage: try store.stage(index), modules: try store.modules(stage: index), gate: gate, exams: exams)
+    }
+
+    func setModuleStatus(id: Int64, _ status: ModuleStatus) throws {
+        try store.setModuleStatus(id: id, status)
+        refresh()
+    }
+
+    func generateAssignment(moduleId: Int64) async throws {
+        _ = try await generation.generateAssignment(moduleId: moduleId, size: 5)
+        refresh()
+    }
+
+    func generateCards(moduleId: Int64) async throws {
+        _ = try await generation.generateCards(moduleId: moduleId, count: 10)
+        refresh()
+    }
+
+    func generateStageExam(stage: Int) async throws {
+        _ = try await generation.generateStageExam(stage: stage)
         refresh()
     }
 

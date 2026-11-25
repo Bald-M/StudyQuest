@@ -187,6 +187,23 @@ extension StudyStore {
         }
     }
 
+    /// 某份作业的全部作答，最新的在前。
+    public func attempts(assignmentId: Int64) throws -> [Attempt] {
+        try pool.read {
+            try Attempt.filter(Column("assignmentId") == assignmentId).order(Column("startedAt").desc, Column("id").desc).fetchAll($0)
+        }
+    }
+
+    /// 某道错题尚未判完（作答中或已交卷）的重做。
+    public func openRedoAttempt(mistakeId: Int64) throws -> Attempt? {
+        try pool.read {
+            try Attempt.filter(
+                Column("mistakeId") == mistakeId
+                    && [AttemptStatus.inProgress.rawValue, AttemptStatus.submitted.rawValue].contains(Column("status"))
+            ).order(Column("id").desc).fetchOne($0)
+        }
+    }
+
     /// 作答中隐藏参考答案与评分标准；交卷后才包含。
     public func attemptDetail(id: Int64) throws -> AttemptDetail {
         try pool.read { db in

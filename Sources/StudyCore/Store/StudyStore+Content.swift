@@ -145,6 +145,12 @@ extension StudyStore {
         }
     }
 
+    public func completedAssignments() throws -> [Assignment] {
+        try pool.read {
+            try Assignment.filter(Column("status") == AssignmentStatus.completed.rawValue).order(Column("day").desc, Column("id").desc).fetchAll($0)
+        }
+    }
+
     // MARK: 试卷
 
     public func createExam(_ input: ExamInput, source: String) throws -> (id: Int64, warnings: [String]) {

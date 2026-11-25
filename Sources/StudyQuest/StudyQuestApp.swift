@@ -46,7 +46,9 @@ struct RootView: View {
                 switch model.selection {
                 case .today: TodayView(model: model)
                 case .review: ReviewView(model: model)
+                case .map: MapView(model: model)
                 case .mistakes: MistakesView(model: model)
+                case .practice: PracticeView(model: model)
                 case .settings: SettingsView(model: model)
                 default: PlaceholderView(item: model.selection)
                 }
@@ -62,6 +64,15 @@ struct RootView: View {
                     .padding(10)
                     .background(.yellow.opacity(0.2))
                 }
+            }
+        }
+        .sheet(isPresented: Binding(get: { model.activeAttemptId != nil }, set: { if !$0 { model.activeAttemptId = nil } })) {
+            if let id = model.activeAttemptId {
+                AnswerView(model: model, attemptId: id) {
+                    model.activeAttemptId = nil
+                    model.refresh()
+                }
+                .id(id)
             }
         }
         .task { await model.onLaunchOrForeground() }
