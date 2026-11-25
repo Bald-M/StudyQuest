@@ -66,6 +66,10 @@ struct MapView: View {
             Text(stage.title).font(.headline).foregroundStyle(stage.status == .locked ? .secondary : .primary)
             Text(stage.estimatedWeeks).font(.caption).foregroundStyle(.secondary)
         }
+        // 连线画在节点下面；给文字垫一层与页面同色的底，让虚线从文字后面穿过而不是压在字上
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
         return NavigationLink(value: stage.index) {
             HStack(spacing: 12) {
                 if onLeft {
@@ -88,6 +92,8 @@ struct MapView: View {
 
     private func circle(_ stage: Stage) -> some View {
         ZStack {
+            // 未解锁的填充是半透明的，先垫一层不透明底，免得连线从圆里透出来
+            Circle().fill(Color(nsColor: .windowBackgroundColor)).frame(width: nodeSize, height: nodeSize)
             Circle().fill(fill(stage.status)).frame(width: nodeSize, height: nodeSize)
             switch stage.status {
             case .locked: Image(systemName: "lock.fill").font(.title2).foregroundStyle(.white.opacity(0.9))
