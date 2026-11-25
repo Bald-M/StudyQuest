@@ -86,6 +86,28 @@ private func problem(stage: Int = 0, prompt: String = "题干", kind: ProblemKin
         #expect(try store.xp(on: today) == 20)
     }
 
+    @Test func newCardLimitIsPerDay() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let today = clock.today()
+        try store.pool.write { try $0.execute(sql: "DELETE FROM card") }
+        _ = try store.createCards((0..<25).map { CardInput(stageIndex: 0, moduleKey: nil, front: "f\($0)", back: "b", tags: nil) }, source: "test")
+        #expect(try store.reviewQueue().cards.count == 20)
+        for _ in 0..<20 {
+            let next = try #require(store.reviewQueue().cards.first)
+            try store.recordReview(cardId: next.id!, remembered: true)
+        }
+        let after = try store.reviewQueue()
+        #expect(after.cards.isEmpty && after.deferred == 0)
+        #expect(try store.xp(on: today) == 20)
+
+        clock.current = t0.addingTimeInterval(24 * 3600)
+        let tomorrow = try store.reviewQueue()
+        #expect(tomorrow.cards.count == 25 && tomorrow.deferred == 0)
+        #expect(tomorrow.cards.filter { $0.step == nil }.count == 5)
+        #expect(tomorrow.cards.filter { $0.step != nil }.count == 20)
+    }
+
     @Test func invalidCreateThrowsReadableError() throws {
         let store = try makeStore()
         do {

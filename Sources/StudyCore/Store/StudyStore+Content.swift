@@ -62,11 +62,15 @@ extension StudyStore {
         let today = clock.today()
         let newLimit = Int(try setting(.dailyNewCardLimit)) ?? 20
         let cap = Int(try setting(.reviewDisplayCap)) ?? 100
-        let (due, new) = try pool.read { db in
+        let (due, new, introducedToday) = try pool.read { db in
             (try Card.filter(Column("step") != nil && Column("dueDay") <= today.rawValue).fetchAll(db),
-             try Card.filter(Column("step") == nil).order(Column("id")).fetchAll(db))
+             try Card.filter(Column("step") == nil).order(Column("id")).fetchAll(db),
+             // 今天第一次被复习的卡数：每日新卡上限按天累计
+             try Int.fetchOne(db, sql: """
+                 SELECT COUNT(*) FROM (SELECT cardId FROM cardReview GROUP BY cardId HAVING MIN(day) = ?)
+                 """, arguments: [today.rawValue]) ?? 0)
         }
-        return ReviewScheduler.queue(due: due, new: new, newLimit: newLimit, displayCap: cap, today: today)
+        return ReviewScheduler.queue(due: due, new: new, newLimit: max(0, newLimit - introducedToday), displayCap: cap, today: today)
     }
 
     public func recordReview(cardId: Int64, remembered: Bool) throws {
@@ -80,10 +84,10 @@ extension StudyStore {
             var review = CardReview(cardId: cardId, day: today, remembered: remembered)
             try review.insert(db)
         }
+        defer { notifier.post() }
         if try reviewQueue().cards.isEmpty {
             try awardXP(dedupKey: "review:\(today.rawValue)", amount: XPRules.reviewCleared, reason: .reviewCleared, day: today)
         }
-        notifier.post()
     }
 
     // MARK: 题目与作业
