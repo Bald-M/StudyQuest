@@ -44,6 +44,9 @@ struct RootView: View {
         } detail: {
             Group {
                 switch model.selection {
+                case .today: TodayView(model: model)
+                case .review: ReviewView(model: model)
+                case .mistakes: MistakesView(model: model)
                 case .settings: SettingsView(model: model)
                 default: PlaceholderView(item: model.selection)
                 }

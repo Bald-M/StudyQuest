@@ -42,6 +42,13 @@ extension StudyStore {
         }
     }
 
+    /// 该日是否已有指定原因的经验记录。
+    public func hasXP(reason: XPReason, on day: Day) throws -> Bool {
+        try pool.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM xpEvent WHERE day = ? AND reason = ?", arguments: [day.rawValue, reason.rawValue]) ?? 0
+        } > 0
+    }
+
     /// 有"复习清零"或"作业完成"经验记录的日期。
     public func studyDays() throws -> Set<Day> {
         let raws = try pool.read {

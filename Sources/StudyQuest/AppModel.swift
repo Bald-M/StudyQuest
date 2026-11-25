@@ -43,6 +43,13 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     let registry: ProviderRegistry
 
     var selection: SidebarItem = .today
+    /// 今日页点进作业/考试时带过去的 id；练习与考试页（后续任务）据此定位。
+    var selectedAssignmentId: Int64?
+    var selectedExamId: Int64?
+    /// 错题重做创建的作答；Task 16 的 AnswerView 据此打开。
+    var activeAttemptId: Int64?
+    /// 本 App 发起的自动生成重试正在进行。
+    var retryingAutoGen = false
     var today: TodaySummary?
     var progress: ProgressSummary?
     var loadError: String?
@@ -124,6 +131,61 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
                 _ = await grading.grade(attemptId: id)
             }
         }
+        refresh()
+    }
+
+    // MARK: 今日、复习、错题（视图只经由这里访问数据库）
+
+    func retryAutoGen() async {
+        guard !retryingAutoGen else { return }
+        retryingAutoGen = true
+        defer { retryingAutoGen = false }
+        lastAutoGen = await autoGenerator.retry()
+        refresh()
+    }
+
+    func reviewQueue() throws -> (cards: [Card], deferred: Int) { try store.reviewQueue() }
+
+    func recordReview(cardId: Int64, remembered: Bool) throws {
+        try store.recordReview(cardId: cardId, remembered: remembered)
+        refresh()
+    }
+
+    func reviewClearedToday() throws -> Bool {
+        try store.hasXP(reason: .reviewCleared, on: store.clock.today())
+    }
+
+    func dailyNoteText() throws -> String {
+        try store.dailyNote(day: store.clock.today())?.text ?? ""
+    }
+
+    func saveDailyNote(_ text: String) throws {
+        try store.saveDailyNote(text)
+        refresh()
+    }
+
+    /// 错题本一行：错题、原题、最近一次已判卷重做的得分。
+    struct MistakeRow: Identifiable {
+        var mistake: Mistake
+        var problem: Problem?
+        var lastPercent: Double?
+        var id: Int64 { mistake.id ?? 0 }
+    }
+
+    func mistakeRows() throws -> [MistakeRow] {
+        let mistakes = try store.mistakes(includeGraduated: false)
+        let problems = Dictionary(uniqueKeysWithValues: try store.problems(ids: mistakes.map(\.problemId)).compactMap { p in p.id.map { ($0, p) } })
+        var lastPercent: [Int64: Double] = [:]
+        for attempt in try store.attempts(examId: nil, status: .graded) {
+            // 按开始时间倒序，每道错题取第一条
+            if let id = attempt.mistakeId, lastPercent[id] == nil, let percent = attempt.totalPercent { lastPercent[id] = percent }
+        }
+        return mistakes.map { MistakeRow(mistake: $0, problem: problems[$0.problemId], lastPercent: lastPercent[$0.id ?? 0]) }
+    }
+
+    func startMistakeRedo(mistakeId: Int64) throws {
+        let attempt = try store.startMistakeRedo(mistakeId: mistakeId)
+        activeAttemptId = attempt.id
         refresh()
     }
 
