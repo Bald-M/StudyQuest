@@ -41,7 +41,7 @@ enum Seeder {
             var stage = Stage(
                 index: entry.index, title: entry.title, summary: entry.summary,
                 estimatedWeeks: entry.estimatedWeeks, passLine: entry.passLine,
-                minSectionRatio: 0.6, cumulativeMin: 0.2, cumulativeMax: 0.3, cooldownDays: 3,
+                minSectionRatio: entry.index == 9 ? 0.8 : 0.6, cumulativeMin: 0.2, cumulativeMax: 0.3, cooldownDays: 3,
                 status: entry.index == 0 ? .inProgress : .locked
             )
             try stage.insert(db)

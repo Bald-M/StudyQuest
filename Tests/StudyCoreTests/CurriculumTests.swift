@@ -32,8 +32,9 @@ private final class CountingNotifier: ChangeNotifier, @unchecked Sendable {
         #expect(stages.map(\.passLine) == [80, 80, 75, 80, 80, 80, 80, 75, 85, 80])
         #expect(stages[0].status == .inProgress)
         #expect(stages.dropFirst().allSatisfy { $0.status == .locked })
-        #expect(stages.allSatisfy { $0.cooldownDays == 3 && $0.minSectionRatio == 0.6
-            && $0.cumulativeMin == 0.2 && $0.cumulativeMax == 0.3 })
+        #expect(stages.allSatisfy { $0.cooldownDays == 3 && $0.cumulativeMin == 0.2 && $0.cumulativeMax == 0.3 })
+        // 阶段 9 两个分区都要达到 80%（设计文档 7.2），其余阶段 60%
+        #expect(stages.map(\.minSectionRatio) == Array(repeating: 0.6, count: 9) + [0.8])
     }
 
     @Test func modulesMatchAppendixA() throws {

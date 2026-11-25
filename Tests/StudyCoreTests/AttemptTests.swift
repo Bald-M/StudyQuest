@@ -40,6 +40,28 @@ private func xpEvent(_ store: StudyStore, _ key: String) throws -> XPEvent? {
     try store.pool.read { try XPEvent.filter(Column("dedupKey") == key).fetchOne($0) }
 }
 
+/// 阶段 9 试卷（模拟面试 50 + 算法 50），算法满分，给定已打分模拟面试。
+private func runStageNine(interviewScores: [Double]) throws -> (Attempt, AttemptDetail) {
+    let clock = FixedClock(t0)
+    let store = try makeStore(clock: clock)
+    try store.pool.write { db in
+        try db.execute(sql: "UPDATE stage SET status = ? WHERE \"index\" = 9", arguments: [StageStatus.inProgress.rawValue])
+        for (i, score) in interviewScores.enumerated() {
+            var m = MockInterview(transcript: [], score: score, createdAt: t0.addingTimeInterval(Double(i - 10)))
+            try m.insert(db)
+        }
+    }
+    let mock = SectionInput(title: "模拟面试", weight: 50, source: .mockInterviewAverage, problemIds: nil, problems: nil)
+    let algo = SectionInput(title: "算法", weight: 50, source: .problems, problemIds: nil,
+                            problems: [problem(stage: 9, prompt: "两数之和"), problem(stage: 9, prompt: "LRU")])
+    let examId = try store.createExam(ExamInput(stageIndex: 9, kind: .stageExam, title: "阶段 9", timeLimitMinutes: 45, sections: [mock, algo]),
+                                      source: "test").id
+    let attempt = try store.startExam(id: examId)
+    try submitAndGrade(store, attempt, scores: [10, 10])
+    let detail = try store.attemptDetail(id: attempt.id!)
+    return (detail.attempt, detail)
+}
+
 @Suite struct AttemptTests {
     @Test func stageExamPassUnlocksNext() throws {
         let clock = FixedClock(t0)
@@ -244,35 +266,49 @@ private func xpEvent(_ store: StudyStore, _ key: String) throws -> XPEvent? {
     }
 
     @Test func stageNineUsesMockInterviewAverage() throws {
-        func run(interviewScores: [Double]) throws -> (Attempt, AttemptDetail) {
-            let clock = FixedClock(t0)
-            let store = try makeStore(clock: clock)
-            try store.pool.write { db in
-                try db.execute(sql: "UPDATE stage SET status = ? WHERE \"index\" = 9", arguments: [StageStatus.inProgress.rawValue])
-                for (i, score) in interviewScores.enumerated() {
-                    var m = MockInterview(transcript: [], score: score, createdAt: t0.addingTimeInterval(Double(i - 10)))
-                    try m.insert(db)
-                }
-            }
-            let mock = SectionInput(title: "模拟面试", weight: 50, source: .mockInterviewAverage, problemIds: nil, problems: nil)
-            let algo = SectionInput(title: "算法", weight: 50, source: .problems, problemIds: nil,
-                                    problems: [problem(stage: 9, prompt: "两数之和"), problem(stage: 9, prompt: "LRU")])
-            let examId = try store.createExam(ExamInput(stageIndex: 9, kind: .stageExam, title: "阶段 9", timeLimitMinutes: 45, sections: [mock, algo]),
-                                              source: "test").id
-            let attempt = try store.startExam(id: examId)
-            try submitAndGrade(store, attempt, scores: [10, 10])
-            let detail = try store.attemptDetail(id: attempt.id!)
-            return (detail.attempt, detail)
-        }
-
-        let (passed, passedDetail) = try run(interviewScores: [90, 80, 70])
+        let (passed, passedDetail) = try runStageNine(interviewScores: [90, 80, 70])
         #expect(passedDetail.sections.first?.percent == 80)
         #expect(passed.totalPercent == 90)
         #expect(passed.passed == true)
 
-        let (failed, failedDetail) = try run(interviewScores: [90, 80])
+        let (failed, failedDetail) = try runStageNine(interviewScores: [90, 80])
         #expect(failedDetail.sections.first?.percent == 0)
         #expect(failed.passed == false)
+    }
+
+    @Test func stageNineRequiresEachSection80() throws {
+        let (attempt, detail) = try runStageNine(interviewScores: [80, 70, 60])
+        #expect(detail.sections.first?.percent == 70)
+        #expect(attempt.totalPercent == 85)
+        #expect(attempt.passed == false)
+        let stage9 = try makeStore(clock: FixedClock(t0)).stage(9)
+        let outcome = GateEvaluator.evaluate(sections: detail.sections, passLine: stage9.passLine, minSectionRatio: stage9.minSectionRatio)
+        #expect(outcome.failingSections == ["模拟面试"])
+    }
+
+    @Test func saveAnswerAfterDeadlineAutoSubmits() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let section = SectionInput(title: "A", weight: 100, source: .problems, problemIds: nil, problems: [problem(prompt: "一")])
+        let examId = try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "周测", timeLimitMinutes: 30, sections: [section]),
+                                          source: "test").id
+        let attempt = try store.startExam(id: examId)
+        let problemId = try #require(store.attemptDetail(id: attempt.id!).items.first).problem.id!
+        try store.saveAnswer(attemptId: attempt.id!, problemId: problemId, answer: "按时")
+
+        clock.current = t0.addingTimeInterval(31 * 60)
+        do {
+            try store.saveAnswer(attemptId: attempt.id!, problemId: problemId, answer: "超时")
+            Issue.record("超时后应当拒绝保存")
+        } catch let StoreError.blocked(message) {
+            #expect(message.contains("时间已到"))
+        }
+        let detail = try store.attemptDetail(id: attempt.id!)
+        #expect(detail.attempt.status == .submitted)
+        #expect(detail.attempt.submittedAt == clock.current)
+        #expect(detail.items.first?.answer == "按时")
+        #expect(try store.examDetail(id: examId, revealAnswers: false).exam.status == .submitted)
+        #expect(try store.expireOverdueAttempts().isEmpty)
     }
 
     @Test func gradedProblemsCountAsStudiedThisWeek() throws {

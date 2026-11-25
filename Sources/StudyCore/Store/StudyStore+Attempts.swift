@@ -68,11 +68,16 @@ extension StudyStore {
 
     // MARK: 作答与交卷
 
+    /// 已过截止时间则不保存：先自动交卷（与 `expireOverdueAttempts` 相同），提交后再抛 `.blocked`。
     public func saveAnswer(attemptId: Int64, problemId: Int64, answer: String) throws {
         let now = clock.now()
-        try pool.write { db in
+        let expired = try pool.write { db -> Bool in
             let attempt = try Self.fetchAttempt(db, id: attemptId)
             guard attempt.status == .inProgress else { throw StoreError.invalid("作答已提交，不能再修改答案") }
+            if let deadline = attempt.deadline, deadline < now {
+                try Self.submit(db, attemptId: attemptId, now: now)
+                return true
+            }
             guard try Self.problemIds(db, of: attempt).contains(problemId) else {
                 throw StoreError.invalid("题目 \(problemId) 不在这次作答中")
             }
@@ -82,8 +87,10 @@ extension StudyStore {
                     ON CONFLICT(attemptId, problemId) DO UPDATE SET answer = excluded.answer, updatedAt = excluded.updatedAt
                     """,
                 arguments: [attemptId, problemId, answer, now])
+            return false
         }
         notifier.post()
+        if expired { throw StoreError.blocked("考试时间已到，已自动交卷，本次答案未保存") }
     }
 
     public func submit(attemptId: Int64) throws {
