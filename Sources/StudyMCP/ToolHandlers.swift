@@ -79,7 +79,9 @@ public struct ToolHandlers {
         case "list_mistakes":
             let args: MistakesArgs = try decode(arguments)
             let mistakes = try store.mistakes(includeGraduated: args.includeGraduated ?? false)
-            let prompts = Dictionary(uniqueKeysWithValues: try store.problems(ids: mistakes.map(\.problemId)).map { ($0.id!, $0.prompt) })
+            // 同一道题毕业后再错会有多条错题，题目 id 可能重复
+            let prompts = Dictionary(try store.problems(ids: mistakes.map(\.problemId)).map { ($0.id!, $0.prompt) },
+                                     uniquingKeysWith: { first, _ in first })
             return try encode(mistakes.map { MistakeOut(mistake: $0, prompt: prompts[$0.problemId] ?? "") })
         case "update_stage_settings":
             let args: StageSettingsArgs = try decode(arguments)

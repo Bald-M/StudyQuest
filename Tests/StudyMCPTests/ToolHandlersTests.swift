@@ -123,6 +123,44 @@ private func int(_ value: JSONValue?) -> Int64? {
         #expect(try store.attemptDetail(id: attempt.id!).items.allSatisfy { $0.grades.isEmpty })
     }
 
+    @Test func listMistakesWithRefailedProblem() throws {
+        let clock = FixedClock(Date(timeIntervalSince1970: 1_800_000_000))
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("studyquest-mcp-test-\(UUID().uuidString)")
+        let store = try StudyStore(database: AppDatabase(url: dir.appendingPathComponent("test.sqlite")), clock: clock,
+                                   notifier: NoopChangeNotifier())
+        let handlers = ToolHandlers(store: store, clientName: { "claude-code" })
+        let input = ProblemInput(stageIndex: 0, moduleKey: nil, kind: .shortAnswer, prompt: "再错一次的题", options: nil,
+                                 referenceAnswer: "答", rubric: "标", maxScore: 10, difficulty: .easy, tags: nil)
+        let problemId = try #require(try store.createProblems([input], source: "test").first)
+        func failInAssignment() throws {
+            let id = try store.createAssignment(
+                AssignmentInput(stageIndex: 0, moduleKey: nil, title: "作业", problemIds: [problemId], problems: nil), source: "test")
+            let attempt = try store.startAssignment(id: id)
+            try store.submit(attemptId: attempt.id!)
+            try store.recordGrade(attemptId: attempt.id!, problemId: problemId, score: 0, feedback: "", mistakes: [], grader: "test", raw: "")
+        }
+        // 答错 → 两次按期重做答对 → 毕业 → 再次答错，同一道题有两条错题
+        try failInAssignment()
+        let mistakeId = try #require(try store.mistakes(includeGraduated: false).first?.id)
+        for _ in 0..<2 {
+            clock.current = clock.current.addingTimeInterval(15 * 24 * 3600)
+            let redo = try store.startMistakeRedo(mistakeId: mistakeId)
+            try store.submit(attemptId: redo.id!)
+            try store.recordGrade(attemptId: redo.id!, problemId: problemId, score: 10, feedback: "", mistakes: [], grader: "test", raw: "")
+        }
+        #expect(try store.mistakes(includeGraduated: false).isEmpty)
+        try failInAssignment()
+
+        let result = handlers.call(name: "list_mistakes", arguments: ["include_graduated": .bool(true)])
+        #expect(!result.isError, "\(result.text)")
+        guard case .array(let rows) = try JSONDecoder().decode(JSONValue.self, from: Data(result.text.utf8)) else {
+            Issue.record("不是数组：\(result.text)")
+            return
+        }
+        #expect(rows.count == 2)
+        #expect(rows.allSatisfy { if case .object(let o) = $0 { o["prompt"] == .string("再错一次的题") } else { false } })
+    }
+
     @Test func unknownToolIsError() throws {
         let (handlers, _) = try makeHandlers()
         #expect(handlers.call(name: "nope", arguments: [:]).isError)
