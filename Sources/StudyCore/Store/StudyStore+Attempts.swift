@@ -525,7 +525,7 @@ extension StudyStore {
             return "阶段考试冷却期中，\(until) 起可以重考"
         case .needsRelearn(let moduleId):
             let title = try Module.fetchOne(db, key: moduleId)?.title ?? "模块 \(moduleId)"
-            return "连续两次未通过：需要先完成模块「\(title)」的至少一份作业"
+            return "连续两次未通过：需完成一份在上次未通过之后新生成的「\(title)」作业"
         case .locked:
             return "该阶段尚未解锁"
         case .alreadyPassed:

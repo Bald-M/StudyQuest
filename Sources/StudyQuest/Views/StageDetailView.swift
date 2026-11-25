@@ -10,7 +10,7 @@ func gateDescription(_ gate: StageGateStatus, modules: [Module]) -> String {
     case .open: "可以开考"
     case .coolingDown(let until): "冷却中，\(until.rawValue) 可再考"
     case .needsRelearn(let moduleId):
-        "需先完成「\(modules.first { $0.id == moduleId }?.title ?? "弱项模块")」的作业"
+        "需完成一份在上次未通过之后新生成的「\(modules.first { $0.id == moduleId }?.title ?? "弱项模块")」作业"
     case .locked: "未解锁：需先通过上一阶段的考试"
     case .alreadyPassed: "本阶段已通过"
     }

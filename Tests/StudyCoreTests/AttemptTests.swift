@@ -133,6 +133,7 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
             Issue.record("需重学时应当拒绝开考")
         } catch let StoreError.blocked(message) {
             #expect(message.contains("Git"))
+            #expect(message.contains("上次未通过之后新生成"))
         }
 
         let assignmentId = try store.createAssignment(
