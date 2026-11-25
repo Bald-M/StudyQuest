@@ -135,6 +135,41 @@ private func int(_ value: JSONValue?) -> Int64? {
         #expect(result.text.contains("未找到"))
     }
 
+    @Test func promptArgumentRejectsHugeOrFractionalNumbers() throws {
+        let (handlers, store) = try makeHandlers()
+        for bad in [1e20, 1.5, Double.infinity] {
+            #expect(throws: StoreError.self) {
+                try PromptCatalog.render(name: "generate_stage_exam", arguments: ["stage_index": .number(bad)], store: store)
+            }
+            #expect(handlers.call(name: "get_stage", arguments: ["stage_index": .number(bad)]).isError)
+        }
+    }
+
+    @Test func getProgressShowsCooldownAndRelearn() throws {
+        let (handlers, store) = try makeHandlers()
+        let problem = ProblemInput(stageIndex: 0, moduleKey: "s0.git", kind: .shortAnswer, prompt: "阶段 0 考题", options: nil,
+                                   referenceAnswer: "答", rubric: "标", maxScore: 10, difficulty: .medium, tags: nil)
+        let section = SectionInput(title: "上机", weight: 100, source: .problems, problemIds: nil, problems: [problem])
+        let examId = try store.createExam(ExamInput(stageIndex: 0, kind: .stageExam, title: "阶段 0", timeLimitMinutes: 60,
+                                                    sections: [section]), source: "test").id
+        let attempt = try store.startExam(id: examId)
+        try store.submit(attemptId: attempt.id!)
+        for p in try store.pendingGrading(attemptId: attempt.id!) {
+            try store.recordGrade(attemptId: attempt.id!, problemId: p.id!, score: 0, feedback: "", mistakes: [], grader: "test", raw: "")
+        }
+
+        let result = handlers.call(name: "get_progress", arguments: [:])
+        #expect(!result.isError, "\(result.text)")
+        let progress = try object(result)
+        #expect(progress["xp"] != nil)
+        #expect(progress["relearn_modules"] == .array([]))
+        let until = store.clock.today().adding(days: try store.stage(0).cooldownDays, calendar: store.clock.calendar)
+        #expect(progress["stage_gates"] == .array([.object([
+            "stage_index": .number(0),
+            "status": .object(["kind": .string("coolingDown"), "until": .string(until.rawValue)]),
+        ])]))
+    }
+
     @Test func toolCatalogMatchesHandlers() throws {
         let expected: Set<String> = [
             "get_progress", "get_today", "list_stages", "get_stage", "create_cards", "create_problems",

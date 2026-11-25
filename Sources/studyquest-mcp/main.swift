@@ -3,7 +3,7 @@ import StudyCore
 import StudyMCP
 
 // stdout 只用于 MCP 协议；日志与错误一律写 stderr。
-// STUDYQUEST_DB_PATH 可覆盖数据库路径（冒烟测试用，避免写入真实数据）。
+// STUDYQUEST_DB_PATH：设置后改用该路径的数据库文件，不碰 ~/Library/Application Support 下的真实数据（defaultURL 不认 HOME，冒烟测试必须用它）。
 do {
     let url = try ProcessInfo.processInfo.environment["STUDYQUEST_DB_PATH"].map { URL(fileURLWithPath: $0) }
         ?? AppDatabase.defaultURL()

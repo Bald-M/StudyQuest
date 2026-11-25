@@ -34,14 +34,20 @@ public enum PromptCatalog {
 
     private static func stageIndex(_ arguments: [String: JSONValue]) throws -> Int {
         switch arguments["stage_index"] {
-        case .number(let n)?: return Int(n)
-        case .string(let s)?: if let n = Int(s.trimmingCharacters(in: .whitespaces)) { return n }
+        case .number(let n)?: if let i = Int(exactly: n), abs(i) < 1_000_000_000 { return i }
+        case .string(let s)?: if let i = Int(s.trimmingCharacters(in: .whitespaces)), abs(i) < 1_000_000_000 { return i }
         default: break
         }
         throw StoreError.invalid("参数错误：stage_index 必须是 0–9 的整数")
     }
 
-    private static func percent(_ ratio: Double) -> String { "\(Int((ratio * 100).rounded()))%" }
+    private static func percent(_ ratio: Double) -> String { "\(whole(ratio * 100))%" }
+
+    /// 四舍五入成整数文本；数值越界或非有限时原样输出，避免 Int 转换崩溃（过关线可被 update_stage_settings 改成任意数）。
+    private static func whole(_ value: Double) -> String {
+        let rounded = value.rounded()
+        return abs(rounded) < 1e15 ? String(Int(rounded)) : String(value)
+    }
 
     private static func stageExam(stageIndex: Int, store: StudyStore) throws -> String {
         let stage = try store.stage(stageIndex)
@@ -60,7 +66,7 @@ public enum PromptCatalog {
             \(outline)
 
             ## 过关规则
-            - 总分达到 \(Int(stage.passLine)) 分（百分制）才算通过。
+            - 总分达到 \(whole(stage.passLine)) 分（百分制）才算通过。
             - 每个分区得分不得低于该分区满分的 \(percent(stage.minSectionRatio))。
             - 未通过后冷却 \(stage.cooldownDays) 天才能重考，重考需要一张新卷，不要与旧卷重复。
 
@@ -108,7 +114,7 @@ public enum PromptCatalog {
     private static func weakness(store: StudyStore) throws -> String {
         let attempts = Array(try store.attempts(examId: nil, status: .graded).prefix(10))
         let attemptList = attempts.isEmpty ? "（还没有已判卷的作答）" : attempts.map { a in
-            let score = a.totalPercent.map { "\(Int($0.rounded()))%" } ?? "无总分"
+            let score = a.totalPercent.map { "\(whole($0))%" } ?? "无总分"
             let passed = a.passed.map { $0 ? "通过" : "未通过" } ?? ""
             return "- 作答 \(a.id!)（\(a.kind.rawValue)）：\(score) \(passed)"
         }.joined(separator: "\n")

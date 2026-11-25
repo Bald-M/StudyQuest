@@ -37,7 +37,7 @@ public struct ToolHandlers {
     private func dispatch(name: String, arguments: [String: JSONValue]) throws -> String {
         switch name {
         case "get_progress":
-            return try encode(store.progressSummary())
+            return try progress()
         case "get_today":
             let autoGen = try store.autoGenRun(day: store.clock.today()).map(AutoGenerator.status(of:)) ?? .done
             return try encode(TodayOut(try TodayBuilder.build(store: store, autoGen: autoGen)))
@@ -88,6 +88,16 @@ public struct ToolHandlers {
         default:
             throw StoreError.invalid("未知工具：\(name)")
         }
+    }
+
+    /// 进度摘要 + 进行中阶段的考试门槛（冷却、需重学）+ 需重学模块。门槛查询会同步 needsRelearn，所以先查门槛再取模块。
+    private func progress() throws -> String {
+        let stages = try store.stages()
+        let gates = try stages.filter { $0.status == .inProgress }
+            .map { StageGateOut(stageIndex: $0.index, status: GateOut(try store.stageGateStatus(stage: $0.index))) }
+        let relearn = try stages.flatMap { try store.modules(stage: $0.index) }.filter(\.needsRelearn)
+            .map { RelearnModuleOut(id: $0.id!, key: $0.key, title: $0.title, stageIndex: $0.stageIndex) }
+        return try encode(ProgressOut(summary: store.progressSummary(), stageGates: gates, relearnModules: relearn))
     }
 
     /// 先校验全部题目都属于这次作答且已交卷，再逐题写入；raw 记录该题的原始评分对象。
@@ -178,6 +188,49 @@ private struct GradingArgs: Decodable {
 }
 
 // MARK: 输出
+
+/// ProgressSummary 的字段平铺在顶层，再附加门槛与需重学模块。
+private struct ProgressOut: Encodable {
+    var summary: ProgressSummary
+    var stageGates: [StageGateOut]
+    var relearnModules: [RelearnModuleOut]
+
+    private enum CodingKeys: String, CodingKey { case stageGates, relearnModules }
+
+    func encode(to encoder: Encoder) throws {
+        try summary.encode(to: encoder)
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(stageGates, forKey: .stageGates)
+        try container.encode(relearnModules, forKey: .relearnModules)
+    }
+}
+
+private struct StageGateOut: Encodable {
+    var stageIndex: Int
+    var status: GateOut
+}
+
+private struct GateOut: Encodable {
+    var kind: String
+    var until: Day?
+    var moduleId: Int64?
+    init(_ status: StageGateStatus) {
+        switch status {
+        case .open: kind = "open"
+        case .coolingDown(let day): kind = "coolingDown"; until = day
+        case .needsRelearn(let id): kind = "needsRelearn"; moduleId = id
+        case .locked: kind = "locked"
+        case .alreadyPassed: kind = "alreadyPassed"
+        }
+    }
+}
+
+private struct RelearnModuleOut: Encodable {
+    var id: Int64
+    var key: String
+    var title: String
+    var stageIndex: Int
+}
 
 private struct StageOut: Encodable {
     var stage: Stage
