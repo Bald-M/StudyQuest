@@ -46,6 +46,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     var today: TodaySummary?
     var progress: ProgressSummary?
     var loadError: String?
+    /// 启动时恢复备份失败的说明；界面顶部显示，用户可关闭。
+    var restoreError: String?
     /// 每次 refresh 加一；页面据此重读自己的数据。
     var revision = 0
 
@@ -65,10 +67,19 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     static func open() throws -> AppModel {
         let url = try ProcessInfo.processInfo.environment["STUDYQUEST_DB_PATH"].map { URL(fileURLWithPath: $0) }
             ?? AppDatabase.defaultURL()
-        try BackupService.applyPendingRestore(at: url)
+        var restoreError: String?
+        do {
+            try BackupService.applyPendingRestore(at: url)
+        } catch BackupError.pendingRestoreInvalid(let reason) {
+            restoreError = reason
+        } catch {
+            restoreError = "从备份恢复失败，继续使用现有数据：\(error)"
+        }
         let database = try AppDatabase(url: url)
         let store = try StudyStore(database: database, clock: SystemClock(), notifier: DistributedChangeNotifier())
-        return AppModel(store: store, database: database, dbURL: url)
+        let model = AppModel(store: store, database: database, dbURL: url)
+        model.restoreError = restoreError
+        return model
     }
 
     init(store: StudyStore, database: AppDatabase, dbURL: URL) {

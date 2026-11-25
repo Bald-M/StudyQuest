@@ -219,9 +219,14 @@ private struct MCPSection: View {
                 Text("该路径下没有找到 studyquest-mcp，请用 scripts/bundle-app.sh 打包后再配置。")
                     .foregroundStyle(.secondary)
             }
-            snippet("Claude Code", "claude mcp add studyquest -- \(path)")
+            snippet("Claude Code", "claude mcp add studyquest -- \(shellQuoted(path))")
             snippet("Codex（~/.codex/config.toml）", "[mcp_servers.studyquest]\ncommand = \"\(path)\"")
         }
+    }
+
+    /// 单引号包住路径，内嵌的 ' 写成 '\''，路径含空格等字符时命令照样可用。
+    private func shellQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func snippet(_ title: String, _ text: String) -> some View {
@@ -330,7 +335,11 @@ private struct ProviderEditor: View {
 
 private extension Error {
     /// StudyCore 的错误枚举没有本地化描述，localizedDescription 只会给出"操作无法完成"，改用枚举本身的描述。
+    /// HTTP 错误不显示响应体：有的服务商会在报错里回显部分 Key。
     var displayText: String {
+        if case AIError.http(let status, _)? = self as? AIError {
+            return "连接失败（HTTP \(status)），请检查 Base URL、模型名和 API Key"
+        }
         let ns = self as NSError
         if self is LocalizedError || ns.userInfo[NSLocalizedDescriptionKey] != nil { return localizedDescription }
         return String(describing: self)

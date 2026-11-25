@@ -3,6 +3,8 @@ import GRDB
 
 public enum BackupError: Error, Equatable {
     case invalidBackup(String)
+    case destinationIsLiveDatabase
+    case pendingRestoreInvalid(String)
 }
 
 /// 整库 SQLite 副本的导出与恢复。恢复分两步：先把备份放到数据库旁边待命，下次启动、打开数据库之前再替换，
@@ -16,15 +18,33 @@ public enum BackupService {
     }
 
     /// 用 SQLite 在线备份写出一致的单文件副本；目标已存在则覆盖。
+    /// 先写到目标同目录的临时文件，成功后再原子替换，失败时原目标不受影响；拒绝把正在用的库（及其 -wal/-shm）当作目标。
     /// 副本改回 DELETE 日志模式：WAL 模式的库没有 -shm 时无法只读打开，也不是单个文件。
     public static func export(database: AppDatabase, to url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
+        let live = resolvedPath(URL(fileURLWithPath: database.pool.path))
+        let target = resolvedPath(url)
+        guard ![live, live + "-wal", live + "-shm"].contains(target) else { throw BackupError.destinationIsLiveDatabase }
+
+        let fm = FileManager.default
+        let temp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        do {
+            let copy = try DatabaseQueue(path: temp.path)
+            try database.pool.backup(to: copy)
+            try copy.writeWithoutTransaction { try $0.execute(sql: "PRAGMA journal_mode = DELETE") }
+            try copy.close()
+            if fm.fileExists(atPath: url.path) {
+                _ = try fm.replaceItemAt(url, withItemAt: temp)
+            } else {
+                try fm.moveItem(at: temp, to: url)
+            }
+        } catch {
+            try? fm.removeItem(at: temp)
+            throw error
         }
-        let copy = try DatabaseQueue(path: url.path)
-        try database.pool.backup(to: copy)
-        try copy.writeWithoutTransaction { try $0.execute(sql: "PRAGMA journal_mode = DELETE") }
-        try copy.close()
+    }
+
+    private static func resolvedPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// 只读打开，确认是 StudyQuest 的库：有 stage 表且有数据。
@@ -47,14 +67,37 @@ public enum BackupService {
         try fm.copyItem(at: url, to: pending)
     }
 
-    /// 启动时、打开数据库之前调用：有待恢复文件就替换原库，并删掉旧库的 -wal/-shm。
+    /// 原库在恢复时被挪到这里（连同未合并的 -wal），以防备份有问题还能找回。
+    public static func preRestoreURL(for dbURL: URL) -> URL {
+        URL(fileURLWithPath: dbURL.path + ".pre-restore")
+    }
+
+    /// 启动时、打开数据库之前调用。有待恢复文件时先校验：不合格就删掉它并抛错，原库不动；
+    /// 合格则把原库挪到 `<db>.pre-restore`（其 -wal 改名为 `<db>.pre-restore-wal`，SQLite 打开时会自动合并；
+    /// 旧的 pre-restore 被替换），删掉 -shm，再把待恢复文件移进来。
     public static func applyPendingRestore(at dbURL: URL) throws {
         let pending = pendingRestoreURL(for: dbURL)
         let fm = FileManager.default
         guard fm.fileExists(atPath: pending.path) else { return }
-        for suffix in ["", "-wal", "-shm"] {
-            let path = dbURL.path + suffix
-            if fm.fileExists(atPath: path) { try fm.removeItem(atPath: path) }
+        do {
+            try validate(backup: pending)
+        } catch {
+            try? fm.removeItem(at: pending)
+            throw BackupError.pendingRestoreInvalid("待恢复的备份无法使用，已丢弃，继续使用现有数据：\(error)")
+        }
+
+        let preRestore = preRestoreURL(for: dbURL).path
+        for path in [preRestore, preRestore + "-wal", preRestore + "-shm"] where fm.fileExists(atPath: path) {
+            try fm.removeItem(atPath: path)
+        }
+        if fm.fileExists(atPath: dbURL.path) {
+            try fm.moveItem(atPath: dbURL.path, toPath: preRestore)
+        }
+        if fm.fileExists(atPath: dbURL.path + "-wal") {
+            try fm.moveItem(atPath: dbURL.path + "-wal", toPath: preRestore + "-wal")
+        }
+        if fm.fileExists(atPath: dbURL.path + "-shm") {
+            try fm.removeItem(atPath: dbURL.path + "-shm")
         }
         try fm.moveItem(at: pending, to: dbURL)
     }

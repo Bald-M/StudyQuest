@@ -42,9 +42,23 @@ struct RootView: View {
             }
             .navigationSplitViewColumnWidth(min: 160, ideal: 180)
         } detail: {
-            switch model.selection {
-            case .settings: SettingsView(model: model)
-            default: PlaceholderView(item: model.selection)
+            Group {
+                switch model.selection {
+                case .settings: SettingsView(model: model)
+                default: PlaceholderView(item: model.selection)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .top) {
+                if let restoreError = model.restoreError {
+                    HStack {
+                        Label(restoreError, systemImage: "exclamationmark.triangle.fill").lineLimit(3)
+                        Spacer()
+                        Button("关闭") { model.restoreError = nil }
+                    }
+                    .padding(10)
+                    .background(.yellow.opacity(0.2))
+                }
             }
         }
         .task { await model.onLaunchOrForeground() }

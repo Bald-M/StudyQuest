@@ -33,24 +33,81 @@ private func cardCount(_ url: URL) throws -> Int {
     @Test func restoreReplacesOnNextLaunch() throws {
         let dir = makeTempDir()
         let dbURL = dir.appendingPathComponent("studyquest.sqlite")
-        let database = try AppDatabase(url: dbURL)
-        let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
-        let exportedCards = try cardCount(dbURL)
         let backup = dir.appendingPathComponent("backup.sqlite")
-        try BackupService.export(database: database, to: backup)
-
-        _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "新卡", back: "b", tags: nil)], source: "test")
-        #expect(try cardCount(dbURL) == exportedCards + 1)
-
-        try BackupService.scheduleRestore(from: backup, dbURL: dbURL)
+        let exportedCards: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            exportedCards = try database.pool.read { try Card.fetchCount($0) }
+            try BackupService.export(database: database, to: backup)
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "新卡", back: "b", tags: nil)], source: "test")
+            #expect(try database.pool.read { try Card.fetchCount($0) } == exportedCards + 1)
+            try BackupService.scheduleRestore(from: backup, dbURL: dbURL)
+            // 模拟退出：关闭连接后才应用恢复，与启动时的真实顺序一致。
+            try database.pool.close()
+        }
         let pending = dir.appendingPathComponent("restore-pending.sqlite")
         #expect(FileManager.default.fileExists(atPath: pending.path))
+        #expect(FileManager.default.fileExists(atPath: dbURL.path + "-wal"))
 
         try BackupService.applyPendingRestore(at: dbURL)
 
         #expect(!FileManager.default.fileExists(atPath: pending.path))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + "-wal"))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + "-shm"))
+        #expect(FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
         #expect(try cardCount(dbURL) == exportedCards)
+        // 挪开的旧库（含 -wal）仍能打开，且保留恢复前新增的卡片。
+        #expect(try cardCount(URL(fileURLWithPath: dbURL.path + ".pre-restore")) == exportedCards + 1)
         _ = try makeStore(at: dbURL)
+    }
+
+    @Test func corruptPendingRestoreKeepsLiveDB() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        do {
+            let store = try makeStore(at: dbURL)
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "原有", back: "b", tags: nil)], source: "test")
+        }
+        let before = try cardCount(dbURL)
+        let pending = dir.appendingPathComponent("restore-pending.sqlite")
+        try Data("损坏的备份".utf8).write(to: pending)
+
+        #expect(throws: (any Error).self) { try BackupService.applyPendingRestore(at: dbURL) }
+
+        #expect(!FileManager.default.fileExists(atPath: pending.path))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
+        #expect(try cardCount(dbURL) == before)
+    }
+
+    @Test func exportRefusesLiveDatabasePath() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let database = try AppDatabase(url: dbURL)
+        let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+        _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "f", back: "b", tags: nil)], source: "test")
+        let before = try database.pool.read { try Card.fetchCount($0) }
+
+        for target in [dbURL.path, dbURL.path + "-wal", dbURL.path + "-shm", dir.path + "/./studyquest.sqlite"] {
+            #expect(throws: BackupError.destinationIsLiveDatabase) {
+                try BackupService.export(database: database, to: URL(fileURLWithPath: target))
+            }
+        }
+        #expect(try database.pool.read { try Card.fetchCount($0) } == before)
+    }
+
+    @Test func exportOverwritesExistingDestination() throws {
+        let dir = makeTempDir()
+        let database = try AppDatabase(url: dir.appendingPathComponent("studyquest.sqlite"))
+        _ = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+        let backup = dir.appendingPathComponent("backup.sqlite")
+        try Data("旧内容".utf8).write(to: backup)
+
+        try BackupService.export(database: database, to: backup)
+
+        try BackupService.validate(backup: backup)
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".tmp") }
+        #expect(leftovers.isEmpty)
     }
 
     @Test func applyWithoutPendingRestoreLeavesDatabase() throws {
