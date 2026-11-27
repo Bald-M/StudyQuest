@@ -125,13 +125,13 @@ public final class GenerationService {
 
     // MARK: 生成与修正
 
-    private struct Generated<Output, Checked> {
+    struct Generated<Output, Checked> {
         var value: Output
         var checked: Checked
     }
 
     /// 解码并校验；有错把错误列表追加到对话里让模型修正一次，仍有错抛 `StoreError.invalid`。
-    private func generate<Output: Decodable, Checked>(
+    func generate<Output: Decodable, Checked>(
         _ type: Output.Type, prompt: String, schema: JSONValue, check: (Output) -> (errors: [String], checked: Checked)
     ) async throws -> Generated<Output, Checked> {
         let chat = try model()
@@ -212,18 +212,18 @@ public final class GenerationService {
 
     // MARK: 提示文本
 
-    private static let systemPrompt = """
+    static let systemPrompt = """
         你是编程自学路线里的出题老师。严格按照用户给出的要求出题，题目、参考答案与评分标准（rubric）都用中文，\
         参考答案要完整正确，rubric 写清各得分点。只输出符合 schema 的 JSON，不要任何其他文字。
         """
 
-    private static func difficultyGuidance(stage: Int) -> String {
+    static func difficultyGuidance(stage: Int) -> String {
         stage <= 1
             ? "难度：阶段 \(stage) 以简单题为主（difficulty 多数为 easy，少量 medium）。"
             : "难度：阶段 \(stage) 简单与中等各占一半（easy 与 medium 各约 50%）。"
     }
 
-    private static func moduleContext(_ module: Module) -> String {
+    static func moduleContext(_ module: Module) -> String {
         var parts = ["模块「\(module.title)」要点：\(module.points)"]
         if !module.lifeProblems.isEmpty { parts.append("贴近生活的题材：" + module.lifeProblems.joined(separator: "、")) }
         if !module.gameTasks.isEmpty { parts.append("游戏化素材：" + module.gameTasks.joined(separator: "、")) }
@@ -236,20 +236,20 @@ public final class GenerationService {
 
     // MARK: Schema
 
-    private static func object(_ properties: [String: JSONValue], required: [String]) -> JSONValue {
+    static func object(_ properties: [String: JSONValue], required: [String]) -> JSONValue {
         .object(["type": .string("object"), "properties": .object(properties), "required": .array(required.map { .string($0) }),
                  "additionalProperties": .bool(false)])
     }
 
-    private static func array(of items: JSONValue) -> JSONValue { .object(["type": .string("array"), "items": items]) }
-    private static let string: JSONValue = .object(["type": .string("string")])
+    static func array(of items: JSONValue) -> JSONValue { .object(["type": .string("array"), "items": items]) }
+    static let string: JSONValue = .object(["type": .string("string")])
     private static let number: JSONValue = .object(["type": .string("number")])
-    private static let integer: JSONValue = .object(["type": .string("integer")])
+    static let integer: JSONValue = .object(["type": .string("integer")])
     private static func stringEnum(_ values: [String]) -> JSONValue {
         .object(["type": .string("string"), "enum": .array(values.map { .string($0) })])
     }
 
-    private static let problemSchema = object([
+    static let problemSchema = object([
         "stageIndex": integer,
         "moduleKey": .object(["type": .array([.string("string"), .string("null")])]),
         "kind": stringEnum(["singleChoice", "multipleChoice", "shortAnswer", "coding", "project"]),
