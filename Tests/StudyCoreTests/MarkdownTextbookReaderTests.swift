@@ -23,7 +23,7 @@ private func write(_ text: String, to url: URL) throws {
         #expect(book.sections.map(\.chapterTitle) == ["第一章", "第一章", "第一章"])
         #expect(book.sections.map(\.title) == ["第一章", "1.1 变量", "1.2 循环"])
         #expect(book.sections.map(\.text) == ["引言", "A", "B"])
-        #expect(book.sections[1].matchKey == "book.md|第一章|1.1 变量#1")
+        #expect(book.sections[1].matchKey == "|第一章|1.1 变量#1")
     }
 
     @Test func codeFenceHashIsNotHeading() throws {
@@ -43,6 +43,33 @@ private func write(_ text: String, to url: URL) throws {
         #expect(book.sections.count == 1)
         #expect(book.sections[0].chapterTitle == "笔记")
         #expect(book.sections[0].title == "笔记")
+        #expect(book.sections[0].matchKey == "||#1")
+    }
+
+    @Test func singleFileMatchKeyIgnoresFileName() throws {
+        let dir = try makeTempDir()
+        let text = "前言\n# 第一章\n## 1.1 变量\nA\n## 1.2 循环\nB"
+        try write(text, to: dir.appendingPathComponent("旧名.md"))
+        try write(text, to: dir.appendingPathComponent("新名.md"))
+        let old = try MarkdownTextbookReader.read(file: dir.appendingPathComponent("旧名.md"))
+        let new = try MarkdownTextbookReader.read(file: dir.appendingPathComponent("新名.md"))
+        #expect(old.sections.map(\.matchKey) == ["||#1", "|第一章|1.1 变量#1", "|第一章|1.2 循环#1"])
+        #expect(new.sections.map(\.matchKey) == old.sections.map(\.matchKey))
+        // 显示用的章名仍是文件名
+        #expect(new.sections[0].chapterTitle == "新名")
+
+        // 改名后更新：全部未变
+        let store = try StudyStore(database: AppDatabase(url: dir.appendingPathComponent("t.sqlite")), clock: SystemClock(), notifier: NoopChangeNotifier())
+        let id = try store.importTextbook(old, stageIndex: 0, sourcePath: "")
+        let plan = try store.syncPreview(textbookId: id, parsed: new)
+        #expect(plan.unchanged.count == 3 && plan.changed.isEmpty && plan.added.isEmpty && plan.removed.isEmpty)
+    }
+
+    @Test func missingImageWarningNamesTheFile() throws {
+        let dir = try makeTempDir()
+        try write("# 章\n![](nope.png)", to: dir.appendingPathComponent("m.md"))
+        let book = try MarkdownTextbookReader.read(file: dir.appendingPathComponent("m.md"))
+        #expect(book.warnings == ["找不到图片：nope.png（来自 m.md）"])
     }
 
     @Test func folderUsesNaturalOrderAndSkipsHidden() throws {
@@ -62,6 +89,14 @@ private func write(_ text: String, to url: URL) throws {
         try write("# 章\n## 练习\n甲\n## 练习\n乙", to: file)
         let book = try MarkdownTextbookReader.read(file: file)
         #expect(book.sections.map(\.matchKey).filter { $0.contains("练习") }.map { String($0.suffix(2)) } == ["#1", "#2"])
+    }
+
+    @Test func ordinalCountsPerChapterAndTitle() throws {
+        let dir = try makeTempDir()
+        let file = dir.appendingPathComponent("o.md")
+        try write("# 甲\n## 练习\nA\n# 乙\n## 练习\nB\n## 练习\nC", to: file)
+        let book = try MarkdownTextbookReader.read(file: file)
+        #expect(book.sections.map(\.matchKey) == ["|甲|练习#1", "|乙|练习#1", "|乙|练习#2"])
     }
 
     @Test func resolvesBothImageSyntaxes() throws {

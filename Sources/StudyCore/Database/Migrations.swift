@@ -230,6 +230,8 @@ enum Migrations {
             }
             try db.alter(table: "problem") { $0.add(column: "sectionId", .integer) }
             try db.alter(table: "card") { $0.add(column: "sectionId", .integer) }
+            try db.create(index: "problem_sectionId", on: "problem", columns: ["sectionId"])
+            try db.create(index: "card_sectionId", on: "card", columns: ["sectionId"])
             try db.alter(table: "attempt") { $0.add(column: "sectionChallengeId", .integer) }
         }
         return m

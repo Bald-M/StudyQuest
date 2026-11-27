@@ -369,7 +369,7 @@ extension StudyStore {
         if attempt.kind == .section {
             guard let id = attempt.sectionChallengeId, let challenge = try SectionChallenge.fetchOne(db, key: id),
                   let found = try TextbookSection.fetchOne(db, key: challenge.sectionId),
-                  let book = try Textbook.fetchOne(db, key: found.textbookId),
+                  let book = try textbook(db, id: found.textbookId),
                   let sectionStage = try Stage.fetchOne(db, key: book.stageIndex) else {
                 throw StoreError.notFound("闯关 \(attempt.sectionChallengeId ?? 0)")
             }

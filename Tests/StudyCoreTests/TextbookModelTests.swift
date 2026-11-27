@@ -20,6 +20,8 @@ private func makeStore() throws -> StudyStore {
             #expect(try db.columns(in: "problem").contains { $0.name == "sectionId" })
             #expect(try db.columns(in: "card").contains { $0.name == "sectionId" })
             #expect(try db.columns(in: "attempt").contains { $0.name == "sectionChallengeId" })
+            #expect(try db.indexes(on: "problem").contains { $0.columns == ["sectionId"] })
+            #expect(try db.indexes(on: "card").contains { $0.columns == ["sectionId"] })
             let problems = try Problem.fetchAll(db)
             #expect(!problems.isEmpty)
             #expect(problems.allSatisfy { $0.sectionId == nil })

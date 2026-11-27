@@ -85,7 +85,16 @@ private func addOutline(_ entries: [(String, Int, [(String, Int)])], to url: URL
         #expect(book.sections.allSatisfy { $0.chapterTitle == "纸质书" })
         #expect(book.sections.map { $0.pageStart! } == [0, 10, 20])
         #expect(book.sections.map { $0.pageEnd! } == [9, 19, 22])
-        #expect(book.sections[2].matchKey == "纸质书|第 21–23 页#1")
+        #expect(book.sections[2].matchKey == "|第 21–23 页#1")
+    }
+
+    @Test func noOutlineMatchKeyIgnoresTitleMetadata() throws {
+        let a = tempURL("a.pdf"), b = tempURL("a.pdf")
+        makePDF((0..<3).map { "content page \($0)" }, title: "旧标题", to: a)
+        makePDF((0..<3).map { "content page \($0)" }, title: "新标题", to: b)
+        let old = try PDFTextbookReader.read(file: a), new = try PDFTextbookReader.read(file: b)
+        #expect(new.sections[0].chapterTitle == "新标题")
+        #expect(new.sections.map(\.matchKey) == old.sections.map(\.matchKey))
     }
 
     @Test func singleLevelOutlineMakesChapterAndSection() throws {

@@ -139,6 +139,43 @@ private func schemaHasKnowledgePoints(_ request: ChatRequest) -> Bool {
         #expect(model.calls == 0)
     }
 
+    @Test func blankSectionIsRejectedBeforeAI() async throws {
+        let store = try makeStore()
+        let sid = try importBook(store, texts: [" \n\t "])[0]
+        let model = FakeModel([.text(reply())])
+        let before = try counts(store)
+        await #expect(throws: StoreError.invalid("这一节没有可提取的文字，无法出题")) {
+            try await SectionChallengeService(store: store, model: { model }).prepareChallenge(sectionId: sid)
+        }
+        #expect(model.requests.isEmpty)
+        #expect(try counts(store) == before)
+    }
+
+    @Test func challengeFlowDoesNotReadPdfData() async throws {
+        let store = try makeStore()
+        let parsed = ParsedTextbook(title: "书", sourceKind: .pdf,
+                                    sections: [ParsedSection(matchKey: "k", chapterTitle: "章", title: "节", text: "正文", pageStart: 0, pageEnd: 0)],
+                                    pdfData: Data([1]))
+        let id = try store.importTextbook(parsed, stageIndex: 0, sourcePath: "")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        let reads = try FullTextbookReads(store)
+        let model = FakeModel([.text(reply()), .text(#"{"mappings": []}"#)])
+        let service = SectionChallengeService(store: store, model: { model })
+        let result = try await service.prepareChallenge(sectionId: sid)
+        #expect(result.challengeId > 0)
+        let suggested = try await service.suggestModules(textbookId: id)
+        #expect(suggested.count == 1 && suggested[sid] == .some(nil))
+        // 闯关结算也不读 pdfData
+        let attempt = try store.startSectionChallenge(challengeId: result.challengeId)
+        try store.submit(attemptId: attempt.id!)
+        for p in try store.pendingGrading(attemptId: attempt.id!) {
+            try store.recordGrade(attemptId: attempt.id!, problemId: p.id!, score: 10, feedback: "", mistakes: [], grader: "test", raw: "")
+        }
+        #expect(try store.attemptDetail(id: attempt.id!).attempt.passed == true)
+        #expect(try store.section(id: sid).masteredAt == t0)
+        #expect(reads.all.isEmpty, "\(reads.all)")
+    }
+
     @Test func suggestModulesSendsTitlesOnly() async throws {
         let store = try makeStore()
         let ids = try importBook(store, texts: ["绝密正文甲", "绝密正文乙", "绝密正文丙"])

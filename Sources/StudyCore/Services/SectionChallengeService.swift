@@ -23,7 +23,10 @@ public final class SectionChallengeService {
             return (latest.id!, false)
         }
         let section = try store.section(id: sectionId)
-        guard let book = try textbook(section.textbookId) else {
+        guard !section.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw StoreError.invalid("这一节没有可提取的文字，无法出题")
+        }
+        guard let book = try store.textbook(id: section.textbookId) else {
             throw StoreError.notFound("教材 \(section.textbookId)")
         }
         let module = try section.moduleId.map { try store.module(id: $0) }
@@ -77,7 +80,7 @@ public final class SectionChallengeService {
 
     /// 只发送章节标题和该阶段的模块列表；不写库，由界面在用户确认后保存。
     public func suggestModules(textbookId: Int64) async throws -> [Int64: String?] {
-        guard let book = try textbook(textbookId), book.deletedAt == nil else {
+        guard let book = try store.textbook(id: textbookId), book.deletedAt == nil else {
             throw StoreError.notFound("教材 \(textbookId)")
         }
         let sections = try store.sectionRows(textbookId: textbookId).map(\.section)
@@ -100,10 +103,6 @@ public final class SectionChallengeService {
             if let key = item.moduleKey, validKeys.contains(key) { chosen[item.sectionId] = key }
         }
         return Dictionary(uniqueKeysWithValues: sections.map { ($0.id!, chosen[$0.id!]) })
-    }
-
-    private func textbook(_ id: Int64) throws -> Textbook? {
-        try store.pool.read { try Textbook.fetchOne($0, key: id) }
     }
 
     // MARK: 输出结构与 schema

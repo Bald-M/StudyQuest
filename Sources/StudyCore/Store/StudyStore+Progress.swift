@@ -49,7 +49,6 @@ extension StudyStore {
         } > 0
     }
 
-    /// 有"复习清零"或"作业完成"经验记录的日期。
     /// 清空复习、完成作业的日子，以及章节闯关判卷的日子。
     public func studyDays() throws -> Set<Day> {
         let calendar = clock.calendar

@@ -16,6 +16,27 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
                    assets: assets, pdfData: pdf)
 }
 
+/// 记录写连接上整行读取 textbook（会带出整本 pdf）的语句。只装在写连接上：读连接是池里任取的，无法稳定跟踪。
+final class FullTextbookReads: @unchecked Sendable {
+    private let lock = NSLock()
+    private var statements: [String] = []
+    var all: [String] { lock.withLock { statements } }
+
+    init(_ store: StudyStore) throws {
+        let pattern = try NSRegularExpression(pattern: #"^SELECT (?!EXISTS).*(\*|pdfData).* FROM "?textbook"?(\s|$)"#)
+        try store.pool.writeWithoutTransaction { db in
+            db.trace { [self] event in
+                let sql = "\(event)"
+                if pattern.firstMatch(in: sql, range: NSRange(sql.startIndex..., in: sql)) != nil { lock.withLock { statements.append(sql) } }
+            }
+        }
+        // 自检：整行读取确实会被记下
+        _ = try store.pool.write { try Textbook.fetchOne($0, key: 0) }
+        #expect(all.count == 1)
+        lock.withLock { statements = [] }
+    }
+}
+
 @Suite struct TextbookStoreTests {
     @Test func importStoresEverything() throws {
         let store = try makeStore()
@@ -100,6 +121,37 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
         #expect(try store.pool.read { try Problem.filter(Column("sectionId") == sid).fetchCount($0) } == 1)
         #expect(try store.origin(sectionId: 12345) == nil)
         #expect(try store.masteredCount(moduleId: 1).total == 0)
+    }
+
+    @Test func deleteKeepsPdfDataAndSetsDeletedAt() throws {
+        let store = try makeStore()
+        let pdf = Data([5, 6, 7])
+        let id = try store.importTextbook(parsed(count: 1, kind: .pdf, pdf: pdf), stageIndex: 0, sourcePath: "/x.pdf")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        #expect(try store.origin(sectionId: sid)?.availability == .available)
+        try store.deleteTextbook(id: id)
+        #expect(try store.textbook(id: id)?.deletedAt == t0)
+        #expect(try store.pdfData(textbookId: id) == pdf)
+        #expect(try store.origin(sectionId: sid)?.availability == .textbookDeleted)
+        #expect(throws: StoreError.notFound("教材 999")) { try store.deleteTextbook(id: 999) }
+    }
+
+    /// 这些写路径只读需要的列，不带出 pdfData。
+    @Test func hotPathsDoNotReadPdfData() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 2, kind: .pdf, pdf: Data([1])), stageIndex: 0, sourcePath: "/x.pdf")
+        let sids = try store.sectionRows(textbookId: id).map { $0.section.id! }
+        let reads = try FullTextbookReads(store)
+        let module = try #require(try store.modules(stage: 0).first?.id)
+        try store.setSectionModules([sids[0]: module, sids[1]: nil])
+        #expect(try store.section(id: sids[0]).moduleId == module)
+        #expect(throws: StoreError.invalid("模块不属于该阶段")) { try store.setSectionModules([sids[0]: try #require(try store.modules(stage: 1).first?.id)]) }
+        try store.setLastRead(textbookId: id, sectionId: sids[1])
+        #expect(try store.textbook(id: id)?.lastSectionId == sids[1])
+        #expect(try store.origin(sectionId: sids[0])?.textbookTitle == "教材")
+        try store.deleteTextbook(id: id)
+        #expect(try store.origin(sectionId: sids[0])?.availability == .textbookDeleted)
+        #expect(reads.all.isEmpty, "\(reads.all)")
     }
 
     @Test func summariesCountVisibleSectionsOfLiveTextbooks() throws {

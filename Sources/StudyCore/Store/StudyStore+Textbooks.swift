@@ -99,11 +99,14 @@ extension StudyStore {
 
     /// 不读 pdfData（总是 nil）；已删除的教材也返回，由调用方看 `deletedAt`。
     public func textbook(id: Int64) throws -> Textbook? {
-        try pool.read {
-            try Textbook.select(Column("id"), Column("stageIndex"), Column("title"), Column("sourceKind"), Column("sourcePath"),
-                                Column("language"), Column("lastSectionId"), Column("importedAt"), Column("deletedAt"))
-                .filter(key: id).fetchOne($0)
-        }
+        try pool.read { try Self.textbook($0, id: id) }
+    }
+
+    /// 同 `textbook(id:)`，在已有事务里用。
+    static func textbook(_ db: Database, id: Int64) throws -> Textbook? {
+        try Textbook.select(Column("id"), Column("stageIndex"), Column("title"), Column("sourceKind"), Column("sourcePath"),
+                            Column("language"), Column("lastSectionId"), Column("importedAt"), Column("deletedAt"))
+            .filter(key: id).fetchOne(db)
     }
 
     public func pdfData(textbookId: Int64) throws -> Data? {
@@ -126,7 +129,7 @@ extension StudyStore {
         try pool.write { db in
             for (sectionId, moduleId) in mapping {
                 guard var section = try TextbookSection.fetchOne(db, key: sectionId),
-                      let book = try Textbook.fetchOne(db, key: section.textbookId) else { throw StoreError.notFound("章节 \(sectionId)") }
+                      let book = try Self.textbook(db, id: section.textbookId) else { throw StoreError.notFound("章节 \(sectionId)") }
                 if let moduleId {
                     guard let module = try Module.fetchOne(db, key: moduleId) else { throw StoreError.notFound("模块 \(moduleId)") }
                     guard module.stageIndex == book.stageIndex else { throw StoreError.invalid("模块不属于该阶段") }
@@ -147,15 +150,14 @@ extension StudyStore {
             }
             try db.execute(sql: "UPDATE textbook SET lastSectionId = ? WHERE id = ?", arguments: [sectionId, textbookId])
         }
-        notifier.post()
+        // 不通知：只有阅读器自己用阅读位置，通知会让每次点目录都全局刷新
     }
 
     public func deleteTextbook(id: Int64) throws {
         let now = clock.now()
         try pool.write { db in
-            guard var book = try Textbook.fetchOne(db, key: id) else { throw StoreError.notFound("教材 \(id)") }
-            book.deletedAt = now
-            try book.update(db)
+            guard try Textbook.exists(db, key: id) else { throw StoreError.notFound("教材 \(id)") }
+            try db.execute(sql: "UPDATE textbook SET deletedAt = ? WHERE id = ?", arguments: [now, id])
         }
         notifier.post()
     }
@@ -163,7 +165,7 @@ extension StudyStore {
     public func origin(sectionId: Int64) throws -> SectionOrigin? {
         try pool.read { db in
             guard let section = try TextbookSection.fetchOne(db, key: sectionId),
-                  let book = try Textbook.fetchOne(db, key: section.textbookId) else { return nil }
+                  let book = try Self.textbook(db, id: section.textbookId) else { return nil }
             let availability: SectionOrigin.Availability = book.deletedAt != nil ? .textbookDeleted : (section.removedAt != nil ? .sectionRemoved : .available)
             return SectionOrigin(textbookTitle: book.title, sectionTitle: section.title, textbookId: section.textbookId, sectionId: sectionId, availability: availability)
         }

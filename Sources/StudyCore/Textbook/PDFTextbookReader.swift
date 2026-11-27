@@ -6,7 +6,13 @@ public enum PDFTextbookReader {
     /// 没有书签时每节的页数。
     public static let pagesPerSection = 10
 
-    private struct Entry { var chapter: String; var title: String; var start: Int }
+    /// `keyChapter` 是 matchKey 里的章名：没有书签时为空串，改 pdf 标题元数据后更新仍能对上。
+    private struct Entry {
+        var chapter: String; var title: String; var start: Int; var keyChapter: String
+        init(chapter: String, title: String, start: Int, keyChapter: String? = nil) {
+            self.chapter = chapter; self.title = title; self.start = start; self.keyChapter = keyChapter ?? chapter
+        }
+    }
 
     public static func read(file: URL) throws -> ParsedTextbook {
         guard let data = try? Data(contentsOf: file), let doc = PDFDocument(data: data), doc.pageCount > 0 else {
@@ -23,7 +29,7 @@ public enum PDFTextbookReader {
         if entries.isEmpty {
             entries = stride(from: 0, to: doc.pageCount, by: pagesPerSection).map { start in
                 let end = min(start + pagesPerSection, doc.pageCount) - 1
-                return Entry(chapter: title, title: "第 \(start + 1)–\(end + 1) 页", start: start)
+                return Entry(chapter: title, title: "第 \(start + 1)–\(end + 1) 页", start: start, keyChapter: "")
             }
         }
 
@@ -33,7 +39,7 @@ public enum PDFTextbookReader {
             // 下一节与本节同页（或顺序倒置）时，本节只取自己那一页。
             let end = i + 1 < entries.count ? max(e.start, entries[i + 1].start - 1) : doc.pageCount - 1
             let text = (e.start...end).compactMap { doc.page(at: $0)?.string }.joined(separator: "\n")
-            let key = "\(e.chapter)|\(e.title)"
+            let key = "\(e.keyChapter)|\(e.title)"
             counts[key, default: 0] += 1
             sections.append(ParsedSection(matchKey: "\(key)#\(counts[key]!)", chapterTitle: e.chapter, title: e.title, text: text, pageStart: e.start, pageEnd: end))
         }
