@@ -394,6 +394,71 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         refresh()
     }
 
+    // MARK: 阅读器与章节闯关
+
+    /// 阅读器一次读取的内容：教材（不含 pdf 数据）、可见的节与阶段是否锁定。教材不存在或已删除时 `textbook` 为 nil。
+    struct ReaderSnapshot: Sendable {
+        var textbook: Textbook?
+        var rows: [SectionRow]
+        var stageLocked: Bool
+        var assetRefs: Set<String>
+    }
+
+    /// 大教材的正文可能很多，在后台线程读。
+    func readerSnapshot(textbookId: Int64) async throws -> ReaderSnapshot {
+        let store = store
+        return try await Task.detached {
+            guard let book = try store.textbook(id: textbookId), book.deletedAt == nil else {
+                return ReaderSnapshot(textbook: nil, rows: [], stageLocked: false, assetRefs: [])
+            }
+            return ReaderSnapshot(
+                textbook: book, rows: try store.sectionRows(textbookId: textbookId),
+                stageLocked: try store.stage(book.stageIndex).status == .locked,
+                assetRefs: book.sourceKind == .pdf ? [] : Set(try store.assetRefs(textbookId: textbookId)))
+        }.value
+    }
+
+    func pdfData(textbookId: Int64) async throws -> Data? {
+        let store = store
+        return try await Task.detached { try store.pdfData(textbookId: textbookId) }.value
+    }
+
+    func setLastRead(textbookId: Int64, sectionId: Int64) {
+        try? store.setLastRead(textbookId: textbookId, sectionId: sectionId)
+    }
+
+    /// 阶段锁定时直接拒绝，不调用 AI；否则取（或生成）本节闯关并开始作答。
+    func prepareSectionChallenge(sectionId: Int64) async throws -> (attemptId: Int64, truncated: Bool) {
+        let section = try store.section(id: sectionId)
+        if let book = try store.textbook(id: section.textbookId), try store.stage(book.stageIndex).status == .locked {
+            throw StoreError.blocked(Self.stageLockedMessage)
+        }
+        let prepared = try await sectionChallenges.prepareChallenge(sectionId: sectionId)
+        let attempt = try store.startSectionChallenge(challengeId: prepared.challengeId)
+        refresh()
+        return (attempt.id!, prepared.truncated)
+    }
+
+    /// 与 `startSectionChallenge` 拒绝时的说明一致。
+    static let stageLockedMessage = "该阶段尚未解锁，可以先阅读，解锁后再闯关"
+
+    /// 章节闯关结果页的一句话。
+    enum SectionOutcome: Equatable {
+        case mastered
+        case failed(passLine: Double)
+        case practice
+    }
+
+    /// 本节在这次作答开始前已掌握即为练习模式；否则过关即本次掌握，未过关给出过关线。
+    func sectionOutcome(attempt: Attempt) throws -> SectionOutcome? {
+        guard attempt.kind == .section, let passed = attempt.passed, let challengeId = attempt.sectionChallengeId,
+              let section = try store.section(challengeId: challengeId) else { return nil }
+        if let masteredAt = section.masteredAt, masteredAt < attempt.startedAt { return .practice }
+        if passed { return .mastered }
+        guard let book = try store.textbook(id: section.textbookId) else { return nil }
+        return .failed(passLine: try store.stage(book.stageIndex).passLine)
+    }
+
     // MARK: 考试与结果
 
     /// 考试页一个阶段的分组：该阶段的全部试卷、当前门槛与模块（门槛原因需要模块名）。

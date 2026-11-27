@@ -112,6 +112,7 @@ import UniformTypeIdentifiers
 /// 表单里的“教材”区，只放行内容；弹出内容见 `TextbooksPresentations`。
 struct TextbooksSection: View {
     let controller: TextbooksController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Section("教材") {
@@ -138,7 +139,7 @@ struct TextbooksSection: View {
             }
             Spacer()
             Menu {
-                Button("阅读") {}.disabled(true)  // Task 9 接入阅读器
+                Button("阅读") { openWindow(value: ReaderRoute(textbookId: book.id, sectionId: nil)) }
                 Button("挂模块") { controller.sheet = .mapping(textbookId: book.id, title: book.title) }
                 Button("从原文件更新") { controller.preview(book, from: nil) }.disabled(controller.busy != nil)
                 Divider()

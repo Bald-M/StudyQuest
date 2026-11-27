@@ -15,6 +15,7 @@ struct ResultView: View {
     let onChanged: () -> Void
 
     @State private var context = AppModel.ResultContext()
+    @State private var sectionOutcome: AppModel.SectionOutcome?
     @State private var regradingProblem: Int64?
     @State private var regradeErrors: [Int64: String] = [:]
     @State private var reflection = ""
@@ -38,6 +39,7 @@ struct ResultView: View {
             summary
             if isExam, pending == 0 { sectionsBox }
             if failed { retreatBox }
+            if pending == 0, let sectionOutcome { sectionOutcomeBox(sectionOutcome) }
             ForEach(Array(detail.items.enumerated()), id: \.element.problem.id) { offset, item in
                 itemView(number: offset + 1, item)
             }
@@ -53,6 +55,7 @@ struct ResultView: View {
 
     private func loadContext() {
         context = (try? model.resultContext(attempt: attempt)) ?? AppModel.ResultContext()
+        sectionOutcome = try? model.sectionOutcome(attempt: attempt)
         if !reflectionLoaded {
             reflection = attempt.reflection ?? ""
             reflectionLoaded = true
@@ -116,6 +119,25 @@ struct ResultView: View {
                             .monospacedDigit().foregroundStyle(ok ? Color.secondary : Color.red)
                     }
                 }
+            }
+            .padding(4)
+        }
+    }
+
+    // MARK: 章节闯关
+
+    private func sectionOutcomeBox(_ outcome: AppModel.SectionOutcome) -> some View {
+        GroupBox {
+            HStack {
+                switch outcome {
+                case .mastered:
+                    Label("本节已掌握，下一节已解锁", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .failed(let passLine):
+                    Label("得分未到过关线 \(NumberText.whole(passLine)) 分，可以重新闯关（会换一组新题）", systemImage: "arrow.counterclockwise")
+                case .practice:
+                    Label("练习模式，不再获得经验", systemImage: "book.closed").foregroundStyle(.secondary)
+                }
+                Spacer()
             }
             .padding(4)
         }

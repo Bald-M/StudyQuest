@@ -97,6 +97,31 @@ extension StudyStore {
         }
     }
 
+    /// 不读 pdfData（总是 nil）；已删除的教材也返回，由调用方看 `deletedAt`。
+    public func textbook(id: Int64) throws -> Textbook? {
+        try pool.read {
+            try Textbook.select(Column("id"), Column("stageIndex"), Column("title"), Column("sourceKind"), Column("sourcePath"),
+                                Column("language"), Column("lastSectionId"), Column("importedAt"), Column("deletedAt"))
+                .filter(key: id).fetchOne($0)
+        }
+    }
+
+    public func pdfData(textbookId: Int64) throws -> Data? {
+        try pool.read { try Data.fetchOne($0, sql: "SELECT pdfData FROM textbook WHERE id = ?", arguments: [textbookId]) }
+    }
+
+    public func assetRefs(textbookId: Int64) throws -> [String] {
+        try pool.read { try String.fetchAll($0, sql: "SELECT ref FROM textbookAsset WHERE textbookId = ? ORDER BY ref", arguments: [textbookId]) }
+    }
+
+    /// 闯关所属的节；闯关不存在时返回 nil。
+    public func section(challengeId: Int64) throws -> TextbookSection? {
+        try pool.read { db in
+            guard let challenge = try SectionChallenge.fetchOne(db, key: challengeId) else { return nil }
+            return try TextbookSection.fetchOne(db, key: challenge.sectionId)
+        }
+    }
+
     public func setSectionModules(_ mapping: [Int64: Int64?]) throws {
         try pool.write { db in
             for (sectionId, moduleId) in mapping {

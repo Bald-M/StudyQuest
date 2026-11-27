@@ -119,3 +119,31 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
         #expect(summary.sourcePath == "/new.md" && summary.total == 3)
     }
 }
+
+@Suite struct TextbookReaderQueryTests {
+    @Test func readerQueries() throws {
+        let store = try makeStore()
+        let pdf = Data([9, 9])
+        let id = try store.importTextbook(parsed(kind: .pdf, pdf: pdf, assets: ["b.png": Data([1]), "a/c.png": Data([2])]), stageIndex: 0, sourcePath: "/x.pdf")
+        let book = try #require(try store.textbook(id: id))
+        #expect(book.title == "教材" && book.sourceKind == .pdf && book.stageIndex == 0 && book.pdfData == nil && book.deletedAt == nil)
+        #expect(try store.pdfData(textbookId: id) == pdf)
+        #expect(try store.assetRefs(textbookId: id) == ["a/c.png", "b.png"])
+        #expect(try store.textbook(id: 999) == nil)
+        try store.deleteTextbook(id: id)
+        #expect(try store.textbook(id: id)?.deletedAt != nil)
+    }
+
+    @Test func sectionForChallenge() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        let challenge = try store.pool.write { db -> Int64 in
+            var c = SectionChallenge(sectionId: sid, problemIds: [], createdAt: t0, source: "test")
+            try c.insert(db)
+            return c.id!
+        }
+        #expect(try store.section(challengeId: challenge)?.id == sid)
+        #expect(try store.section(challengeId: 999) == nil)
+    }
+}

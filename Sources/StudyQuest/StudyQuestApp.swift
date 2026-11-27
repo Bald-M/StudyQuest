@@ -29,6 +29,11 @@ struct StudyQuestApp: App {
             }
             .frame(minWidth: 820, minHeight: 560)
         }
+        WindowGroup("教材", for: ReaderRoute.self) { $route in
+            if let model, let route {
+                ReaderView(model: model, route: route)
+            }
+        }
     }
 }
 

@@ -40,11 +40,15 @@ public enum MarkdownTextbookReader {
 
     private struct ImageRef { var ref: String; var isWiki: Bool }
 
+    /// `![alt](路径)`：第 1 组是路径（可带尖括号）。阅读器改写图片链接时共用。
+    static let standardImageRegex = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)"#)
+    /// `![[文件名|尺寸]]`：第 1 组是文件名。
+    static let wikiImageRegex = try! NSRegularExpression(pattern: #"!\[\[([^\]\|]+)(?:\|[^\]]*)?\]\]"#)
+
     private static func references(in text: String) -> [ImageRef] {
         let ns = text as NSString
         let whole = NSRange(location: 0, length: ns.length)
-        let std = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)"#)
-        let wiki = try! NSRegularExpression(pattern: #"!\[\[([^\]\|]+)(?:\|[^\]]*)?\]\]"#)
+        let std = standardImageRegex, wiki = wikiImageRegex
         var found: [(Int, ImageRef)] = []
         for m in std.matches(in: text, range: whole) {
             var raw = ns.substring(with: m.range(at: 1))
