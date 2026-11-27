@@ -184,6 +184,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         var id: Int64 { mistake.id ?? 0 }
     }
 
+    /// 题目或卡片的教材出处；没有 sectionId 或读取失败时为 nil。
+    func origin(sectionId: Int64?) -> SectionOrigin? {
+        sectionId.flatMap { try? store.origin(sectionId: $0) }
+    }
+
     func mistakeRows() throws -> [MistakeRow] {
         let mistakes = try store.mistakes(includeGraduated: false)
         let problems = Dictionary(uniqueKeysWithValues: try store.problems(ids: mistakes.map(\.problemId)).compactMap { p in p.id.map { ($0, p) } })

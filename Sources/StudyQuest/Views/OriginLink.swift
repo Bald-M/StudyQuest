@@ -19,7 +19,7 @@ struct OriginLink: View {
                     }
                     .buttonStyle(.link)
                 case .sectionRemoved:
-                    Text("出自《\(origin.textbookTitle)》（原章节已删除）").foregroundStyle(.secondary)
+                    Text("原章节已删除").foregroundStyle(.secondary)
                 case .textbookDeleted:
                     Text("原教材已删除").foregroundStyle(.secondary)
                 }
@@ -27,7 +27,7 @@ struct OriginLink: View {
         }
         .font(.caption)
         .task(id: "\(sectionId ?? -1)-\(model.revision)") {
-            origin = sectionId.flatMap { try? model.store.origin(sectionId: $0) }
+            origin = model.origin(sectionId: sectionId)
         }
     }
 }
