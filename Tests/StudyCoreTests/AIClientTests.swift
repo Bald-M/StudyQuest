@@ -82,12 +82,45 @@ private func makeStore() throws -> (StudyStore, URL) {
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try jsonBody(r)
         #expect(body["temperature"] as? Double == 0)
+        #expect(body["max_tokens"] as? Int == 16000 && body["max_completion_tokens"] == nil)
         #expect((body["response_format"] as? [String: Any])?["type"] as? String == "json_object")
         let messages = try #require(body["messages"] as? [[String: Any]])
         #expect(messages.first?["role"] as? String == "system")
         #expect((messages.first?["content"] as? String)?.contains("\"type\"") == true)
         #expect(messages.last?["content"] as? String == "q")
         #expect(model.label == "openAICompatible:m")
+    }
+
+    // 新 OpenAI 模型不接受 max_tokens 与 temperature: 0；遇到这两种明确的参数错误时换写法重试，并按 baseURL+模型记住。
+    private static func paramError(_ param: String, code: String) -> StubHTTPClient.Reply {
+        .json(["error": ["message": "Unsupported", "type": "invalid_request_error", "param": param, "code": code]], status: 400)
+    }
+    private static let ok = StubHTTPClient.Reply.json(["choices": [["message": ["content": "{}"], "finish_reason": "stop"]]])
+
+    @Test func openAIAdaptsUnsupportedParamsAndRemembers() async throws {
+        let base = URL(string: "https://adapt.example.com/v1")!
+        let http = StubHTTPClient([Self.paramError("max_tokens", code: "unsupported_parameter"),
+                                   Self.paramError("temperature", code: "unsupported_value"), Self.ok, Self.ok])
+        let req = ChatRequest(system: "s", messages: [ChatMessage(role: "user", content: "q")], maxTokens: 123)
+        #expect(try await OpenAICompatibleModel(baseURL: base, model: "new-model", apiKey: "k", http: http).complete(req) == "{}")
+        #expect(http.requests.count == 3)
+        let third = try jsonBody(http.requests[2])
+        #expect(third["max_tokens"] == nil && third["max_completion_tokens"] as? Int == 123 && third["temperature"] == nil)
+        // 新建的同一 baseURL+模型直接用记住的写法，不再先失败一次
+        #expect(try await OpenAICompatibleModel(baseURL: base, model: "new-model", apiKey: "k", http: http).complete(req) == "{}")
+        #expect(http.requests.count == 4)
+        let fourth = try jsonBody(http.requests[3])
+        #expect(fourth["max_completion_tokens"] as? Int == 123 && fourth["temperature"] == nil)
+    }
+
+    @Test func openAIOtherBadRequestIsNotRetried() async throws {
+        // 参数名对得上但不是“不支持”（如旧模型的“max_tokens 太大”）也不换写法
+        for (param, code) in [("messages", "invalid_value"), ("max_tokens", "invalid_value")] {
+            let http = StubHTTPClient([Self.paramError(param, code: code)])
+            let model = OpenAICompatibleModel(baseURL: URL(string: "https://other.example.com/v1")!, model: "m2-\(param)", apiKey: "k", http: http)
+            await #expect(throws: AIError.self) { try await model.complete(ChatRequest(system: "s", messages: [])) }
+            #expect(http.requests.count == 1)
+        }
     }
 
     @Test func openAITruncated() async throws {
