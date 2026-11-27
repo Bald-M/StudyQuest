@@ -16,7 +16,7 @@ public struct Mistake: Codable, FetchableRecord, MutablePersistableRecord, Ident
 }
 
 public enum XPReason: String, Codable, DatabaseValueConvertible, Sendable {
-    case problem, assignmentCompleted, reviewCleared, weeklyPassed, stagePassed, dailyNote
+    case problem, assignmentCompleted, reviewCleared, weeklyPassed, stagePassed, dailyNote, sectionMastered
 }
 
 public struct XPEvent: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {
