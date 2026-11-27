@@ -34,9 +34,10 @@ extension StudyStore {
         let now = clock.now()
         let id: Int64 = try pool.write { db in
             guard try Stage.fetchOne(db, key: stageIndex) != nil else { throw StoreError.notFound("阶段 \(stageIndex)") }
-            var book = Textbook(stageIndex: stageIndex, title: parsed.title, sourceKind: parsed.sourceKind, sourcePath: sourcePath, pdfData: parsed.pdfData, importedAt: now)
+            var book = Textbook(stageIndex: stageIndex, title: parsed.title, sourceKind: parsed.sourceKind, sourcePath: sourcePath, importedAt: now)
             try book.insert(db)
             let bookId = book.id!
+            if let data = parsed.pdfData { try TextbookPdf(textbookId: bookId, data: data).insert(db) }
             for (index, s) in parsed.sections.enumerated() {
                 var section = TextbookSection(textbookId: bookId, matchKey: s.matchKey, chapterTitle: s.chapterTitle, title: s.title, order: index, text: s.text, textHash: SectionText.hash(s.text), pageStart: s.pageStart, pageEnd: s.pageEnd)
                 try section.insert(db)
@@ -57,7 +58,7 @@ extension StudyStore {
         }
     }
 
-    /// 未删除教材及其未移除节的掌握数；不读 pdfData 与正文。
+    /// 未删除教材及其未移除节的掌握数；不读正文。
     public func textbookSummaries(stage: Int) throws -> [TextbookSummary] {
         try pool.read { db in
             try Row.fetchAll(db, sql: """
@@ -97,7 +98,7 @@ extension StudyStore {
         }
     }
 
-    /// 不读 pdfData（总是 nil）；已删除的教材也返回，由调用方看 `deletedAt`。
+    /// 已删除的教材也返回，由调用方看 `deletedAt`。
     public func textbook(id: Int64) throws -> Textbook? {
         try pool.read { try Self.textbook($0, id: id) }
     }
@@ -110,7 +111,7 @@ extension StudyStore {
     }
 
     public func pdfData(textbookId: Int64) throws -> Data? {
-        try pool.read { try Data.fetchOne($0, sql: "SELECT pdfData FROM textbook WHERE id = ?", arguments: [textbookId]) }
+        try pool.read { try Data.fetchOne($0, sql: "SELECT data FROM textbookPdf WHERE textbookId = ?", arguments: [textbookId]) }
     }
 
     public func assetRefs(textbookId: Int64) throws -> [String] {
@@ -221,7 +222,7 @@ extension StudyStore {
                 try db.execute(sql: "UPDATE textbookSection SET \"order\" = ? WHERE id = ?", arguments: [index, id])
             }
             if parsed.sourceKind == .pdf {
-                book.pdfData = parsed.pdfData
+                if let data = parsed.pdfData { try TextbookPdf(textbookId: textbookId, data: data).save(db) }
             } else {
                 try TextbookAsset.filter(Column("textbookId") == textbookId).deleteAll(db)
                 for (ref, data) in parsed.assets {

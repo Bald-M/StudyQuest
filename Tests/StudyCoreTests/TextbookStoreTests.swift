@@ -50,7 +50,7 @@ final class FullTextbookReads: @unchecked Sendable {
         #expect(try store.asset(textbookId: id, ref: "a/b.png") == img)
         #expect(try store.asset(textbookId: id, ref: "nope") == nil)
         let book = try #require(try store.textbooks(stage: 0).first)
-        #expect(book.pdfData == pdf)
+        #expect(try store.pdfData(textbookId: try #require(book.id)) == pdf)
         #expect(book.sourcePath == "/x.pdf")
         #expect(throws: StoreError.notFound("阶段 99")) { try store.importTextbook(parsed(), stageIndex: 99, sourcePath: "") }
         #expect(throws: StoreError.invalid("没有可导入的内容")) { try store.importTextbook(parsed(count: 0), stageIndex: 0, sourcePath: "") }
@@ -101,7 +101,8 @@ final class FullTextbookReads: @unchecked Sendable {
         let second = try #require(try store.sectionRows(textbookId: id).last?.section.id)
         try store.setLastRead(textbookId: id, sectionId: second)
         let book = try #require(try store.textbooks(stage: 0).first { $0.id == id })
-        #expect(book.lastSectionId == second && book.pdfData == pdf && book.title == "教材" && book.sourcePath == "/x.pdf")
+        #expect(book.lastSectionId == second && book.title == "教材" && book.sourcePath == "/x.pdf")
+        #expect(try store.pdfData(textbookId: id) == pdf)
     }
 
     @Test func deletedTextbookIsHiddenButOriginsRemain() throws {
@@ -134,6 +135,9 @@ final class FullTextbookReads: @unchecked Sendable {
         #expect(try store.pdfData(textbookId: id) == pdf)
         #expect(try store.origin(sectionId: sid)?.availability == .textbookDeleted)
         #expect(throws: StoreError.notFound("教材 999")) { try store.deleteTextbook(id: 999) }
+        // 真正删掉教材行时 pdf 跟着级联删除，不留孤儿 BLOB
+        try store.pool.write { try $0.execute(sql: "DELETE FROM textbook WHERE id = ?", arguments: [id]) }
+        #expect(try store.pdfData(textbookId: id) == nil)
     }
 
     /// 这些写路径只读需要的列，不带出 pdfData。
@@ -190,7 +194,7 @@ final class FullTextbookReads: @unchecked Sendable {
         let pdf = Data([9, 9])
         let id = try store.importTextbook(parsed(kind: .pdf, pdf: pdf, assets: ["b.png": Data([1]), "a/c.png": Data([2])]), stageIndex: 0, sourcePath: "/x.pdf")
         let book = try #require(try store.textbook(id: id))
-        #expect(book.title == "教材" && book.sourceKind == .pdf && book.stageIndex == 0 && book.pdfData == nil && book.deletedAt == nil)
+        #expect(book.title == "教材" && book.sourceKind == .pdf && book.stageIndex == 0 && book.deletedAt == nil)
         #expect(try store.pdfData(textbookId: id) == pdf)
         #expect(try store.assetRefs(textbookId: id) == ["a/c.png", "b.png"])
         #expect(try store.textbook(id: 999) == nil)

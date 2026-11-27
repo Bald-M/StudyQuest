@@ -234,6 +234,15 @@ enum Migrations {
             try db.create(index: "card_sectionId", on: "card", columns: ["sectionId"])
             try db.alter(table: "attempt") { $0.add(column: "sectionChallengeId", .integer) }
         }
+        // pdf 原文件移出教材行：改阅读位置等小字段时不再重写整本 pdf。
+        m.registerMigration("v3") { db in
+            try db.create(table: "textbookPdf") { t in
+                t.primaryKey("textbookId", .integer).references("textbook", onDelete: .cascade)
+                t.column("data", .blob).notNull()
+            }
+            try db.execute(sql: "INSERT INTO textbookPdf (textbookId, data) SELECT id, pdfData FROM textbook WHERE pdfData IS NOT NULL")
+            try db.alter(table: "textbook") { $0.drop(column: "pdfData") }
+        }
         return m
     }
 }
