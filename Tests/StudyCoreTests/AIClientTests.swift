@@ -180,6 +180,30 @@ private func makeStore() throws -> (StudyStore, URL) {
         try await registry.testConnection(id: o.id)
     }
 
+    @Test func availableModelsListsIdsPerKind() async throws {
+        let (store, _) = try makeStore()
+        let http = StubHTTPClient([
+            .json(["data": [["id": "gpt-b"], ["id": "gpt-a"]]]),
+            .json(["data": [["id": "claude-opus-5-5", "type": "model"]], "has_more": false]),
+        ])
+        let registry = ProviderRegistry(store: store, secrets: InMemorySecretStore(), http: http)
+        let o = ProviderConfig(id: UUID().uuidString, kind: .openAICompatible, name: "O", baseURL: "https://example.com/v1/", model: "")
+        #expect(try await registry.availableModels(for: o, apiKey: "typed") == ["gpt-a", "gpt-b"])
+        let r = http.requests[0]
+        #expect(r.url?.absoluteString == "https://example.com/v1/models")
+        #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer typed")
+
+        let a = ProviderConfig(id: UUID().uuidString, kind: .anthropic, name: "A", baseURL: "https://api.anthropic.com", model: "x")
+        try registry.save(a, apiKey: "saved")
+        #expect(try await registry.availableModels(for: a, apiKey: "") == ["claude-opus-5-5"])
+        let r2 = http.requests[1]
+        #expect(r2.url?.path == "/v1/models")
+        #expect(r2.value(forHTTPHeaderField: "x-api-key") == "saved")
+
+        let missing = ProviderConfig(id: UUID().uuidString, kind: .openAICompatible, name: "M", baseURL: "https://example.com/v1", model: "")
+        await #expect(throws: AIError.notConfigured("M")) { try await registry.availableModels(for: missing, apiKey: nil) }
+    }
+
     @Test func baseURLWithQueryIsRejected() async throws {
         let http = StubHTTPClient([])
         let model = OpenAICompatibleModel(baseURL: URL(string: "https://x.test/v1?x=1")!, model: "m", apiKey: "k", http: http)
