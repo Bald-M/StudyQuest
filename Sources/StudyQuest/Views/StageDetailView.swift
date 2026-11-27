@@ -34,6 +34,7 @@ struct StageDetailView: View {
                 Form {
                     overview(detail.stage)
                     modulesSection(detail)
+                    TextbooksSection(model: model, stageIndex: stageIndex)
                     materialsSection(detail.modules)
                     examSection(detail)
                 }

@@ -74,6 +74,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     @ObservationIgnored lazy var grading = GradingService(store: store, model: { [registry] in try registry.model(for: .grading) })
     @ObservationIgnored lazy var generation = GenerationService(store: store, model: { [registry] in try registry.model(for: .generation) })
     @ObservationIgnored lazy var tutor = TutorService(store: store, model: { [registry] in try registry.model(for: .generation) })
+    @ObservationIgnored lazy var sectionChallenges = SectionChallengeService(store: store, model: { [registry] in try registry.model(for: .generation) })
     @ObservationIgnored lazy var autoGenerator = AutoGenerator(
         store: store, generation: generation, isConfigured: { [registry] in registry.isConfigured(.generation) })
 
@@ -316,6 +317,79 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
     func generateStageExam(stage: Int) async throws {
         _ = try await generation.generateStageExam(stage: stage)
+        refresh()
+    }
+
+    // MARK: 教材
+
+    func textbookRows(stage: Int) throws -> [TextbookSummary] { try store.textbookSummaries(stage: stage) }
+
+    func modules(stage: Int) throws -> [Module] { try store.modules(stage: stage) }
+
+    /// 文件夹按 Markdown 文件夹读，`.pdf` 按 pdf，`.md`/`.markdown` 按单个 Markdown 文件。
+    nonisolated static func sourceKind(of url: URL) throws -> TextbookSourceKind {
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return .markdownFolder }
+        switch url.pathExtension.lowercased() {
+        case "pdf": return .pdf
+        case "md", "markdown": return .markdownFile
+        default: throw StoreError.invalid("只支持 .md、.pdf 文件或 Markdown 文件夹")
+        }
+    }
+
+    nonisolated static func readTextbook(at url: URL, kind: TextbookSourceKind) throws -> ParsedTextbook {
+        switch kind {
+        case .markdownFile: try MarkdownTextbookReader.read(file: url)
+        case .markdownFolder: try MarkdownTextbookReader.read(folder: url)
+        case .pdf: try PDFTextbookReader.read(file: url)
+        }
+    }
+
+    /// 在后台线程解析，避免大 pdf 卡住界面。
+    func parseTextbook(at url: URL) async throws -> ParsedTextbook {
+        try await Task.detached { try Self.readTextbook(at: url, kind: try Self.sourceKind(of: url)) }.value
+    }
+
+    /// 写入可能有几十 MB 的 pdf，放到后台线程。
+    func importTextbook(_ parsed: ParsedTextbook, stage: Int, sourcePath: String) async throws -> Int64 {
+        let store = store
+        let id = try await Task.detached { try store.importTextbook(parsed, stageIndex: stage, sourcePath: sourcePath) }.value
+        refresh()
+        return id
+    }
+
+    func sectionRows(textbookId: Int64) async throws -> [SectionRow] {
+        let store = store
+        return try await Task.detached { try store.sectionRows(textbookId: textbookId) }.value
+    }
+
+    func suggestModules(textbookId: Int64) async throws -> [Int64: String?] {
+        try await sectionChallenges.suggestModules(textbookId: textbookId)
+    }
+
+    func saveModuleMapping(_ mapping: [Int64: Int64?]) throws {
+        try store.setSectionModules(mapping)
+        refresh()
+    }
+
+    /// 按教材原来的类型重新解析 `url`（默认是导入时的路径）并比对；路径不存在时抛 `StoreError.notFound("原文件")`。
+    func syncPreview(textbook: TextbookSummary, from url: URL? = nil) async throws -> (SyncPlan, ParsedTextbook) {
+        let source = url ?? URL(fileURLWithPath: textbook.sourcePath)
+        let store = store, id = textbook.id, kind = textbook.sourceKind
+        return try await Task.detached {
+            guard FileManager.default.fileExists(atPath: source.path) else { throw StoreError.notFound("原文件") }
+            let parsed = try Self.readTextbook(at: source, kind: kind)
+            return (try store.syncPreview(textbookId: id, parsed: parsed), parsed)
+        }.value
+    }
+
+    func applySync(textbookId: Int64, parsed: ParsedTextbook) async throws {
+        let store = store
+        try await Task.detached { try store.applySync(textbookId: textbookId, parsed: parsed) }.value
+        refresh()
+    }
+
+    func deleteTextbook(id: Int64) throws {
+        try store.deleteTextbook(id: id)
         refresh()
     }
 

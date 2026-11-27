@@ -89,4 +89,23 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
         #expect(try store.origin(sectionId: 12345) == nil)
         #expect(try store.masteredCount(moduleId: 1).total == 0)
     }
+
+    @Test func summariesCountVisibleSectionsOfLiveTextbooks() throws {
+        let store = try makeStore()
+        let a = try store.importTextbook(parsed(count: 3, kind: .pdf, pdf: Data([1])), stageIndex: 0, sourcePath: "/a.pdf")
+        let b = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/b.md")
+        let gone = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "/c.md")
+        _ = try store.importTextbook(parsed(count: 1), stageIndex: 1, sourcePath: "/d.md")
+        let ids = try store.sectionRows(textbookId: a).map { $0.section.id! }
+        try store.pool.write { db in
+            try db.execute(sql: "UPDATE textbookSection SET masteredAt = ? WHERE id IN (?, ?)", arguments: [t0, ids[0], ids[2]])
+            try db.execute(sql: "UPDATE textbookSection SET removedAt = ? WHERE id = ?", arguments: [t0, ids[2]])
+        }
+        try store.deleteTextbook(id: gone)
+        let summaries = try store.textbookSummaries(stage: 0)
+        #expect(summaries.map(\.id) == [a, b])
+        #expect(summaries[0].mastered == 1 && summaries[0].total == 2)
+        #expect(summaries[0].sourceKind == .pdf && summaries[0].sourcePath == "/a.pdf" && summaries[0].title == "教材")
+        #expect(summaries[1].mastered == 0 && summaries[1].total == 2)
+    }
 }
