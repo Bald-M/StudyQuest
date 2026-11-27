@@ -9,11 +9,11 @@ BIN_DIR="$(swift build -c release --show-bin-path)"
 
 APP="build/StudyQuest.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BIN_DIR/StudyQuest" "$APP/Contents/MacOS/StudyQuest"
 cp "$BIN_DIR/studyquest-mcp" "$APP/Contents/MacOS/studyquest-mcp"
-mkdir -p "$APP/Contents/Resources"
+cp "assets/branding/StudyQuest.icns" "$APP/Contents/Resources/StudyQuest.icns"
 cp -R Resources/Web "$APP/Contents/Resources/Web"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
@@ -27,6 +27,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>StudyQuest</string>
     <key>CFBundleName</key>
     <string>StudyQuest</string>
+    <key>CFBundleIconFile</key>
+    <string>StudyQuest.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

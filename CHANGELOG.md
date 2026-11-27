@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Blue-to-cyan StudyQuest app icon and standalone transparent logo mark.
 - GPL-3.0 license.
 - README in English and Simplified Chinese.
 - Contributing guide and changelog.
