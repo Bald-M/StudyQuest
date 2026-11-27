@@ -135,6 +135,9 @@ final class FullTextbookReads: @unchecked Sendable {
         #expect(try store.pdfData(textbookId: id) == pdf)
         #expect(try store.origin(sectionId: sid)?.availability == .textbookDeleted)
         #expect(throws: StoreError.notFound("教材 999")) { try store.deleteTextbook(id: 999) }
+        // 真正删掉教材行时 pdf 跟着级联删除，不留孤儿 BLOB
+        try store.pool.write { try $0.execute(sql: "DELETE FROM textbook WHERE id = ?", arguments: [id]) }
+        #expect(try store.pdfData(textbookId: id) == nil)
     }
 
     /// 这些写路径只读需要的列，不带出 pdfData。
