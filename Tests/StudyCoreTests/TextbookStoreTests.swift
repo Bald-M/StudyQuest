@@ -177,6 +177,19 @@ final class FullTextbookReads: @unchecked Sendable {
         #expect(summaries[1].mastered == 0 && summaries[1].total == 2)
     }
 
+    @Test func summariesAcrossAllStages() throws {
+        let store = try makeStore()
+        let x = try store.importTextbook(parsed(count: 1), stageIndex: 1, sourcePath: "/x.md")
+        let a = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "/a.md")
+        let b = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "/b.md")
+        let c = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "/c.md")
+        try store.deleteTextbook(id: c)
+        let all = try store.textbookSummaries(stage: nil)
+        #expect(all.map(\.id) == [a, b, x])
+        #expect(all.map(\.stageIndex) == [0, 0, 1])
+        #expect(try store.textbookSummaries(stage: 0).map(\.id) == [a, b])
+    }
+
     @Test func applySyncUpdatesSourcePathOnlyWhenProvided() throws {
         let store = try makeStore()
         let id = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/old.md")

@@ -334,7 +334,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
 
     // MARK: 教材
 
-    func textbookRows(stage: Int) throws -> [TextbookSummary] { try store.textbookSummaries(stage: stage) }
+    func textbookRows(stage: Int?) throws -> [TextbookSummary] { try store.textbookSummaries(stage: stage) }
 
     func modules(stage: Int) throws -> [Module] { try store.modules(stage: stage) }
 
