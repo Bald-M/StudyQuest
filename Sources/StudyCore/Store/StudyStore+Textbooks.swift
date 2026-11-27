@@ -181,6 +181,85 @@ extension StudyStore {
         notifier.post()
     }
 
+    // MARK: 章节闯关
+
+    /// 一个写事务里插入本节的题目、卡片（sectionId 指向本节）和闯关记录。
+    public func createSectionChallenge(sectionId: Int64, problems: [ProblemInput], cards: [CardInput], source: String) throws -> Int64 {
+        let (stages, modules) = try catalog()
+        var errors = problems.isEmpty ? ["闯关至少需要 1 道题"] : []
+        errors += problems.flatMap { ContentValidator.validate($0, stages: stages, modules: modules) }
+        errors += cards.flatMap { ContentValidator.validate($0, stages: stages, modules: modules) }
+        try Self.require(errors)
+        let now = clock.now()
+        let today = clock.today()
+        let id = try pool.write { db -> Int64 in
+            guard try TextbookSection.exists(db, key: sectionId) else { throw StoreError.notFound("章节 \(sectionId)") }
+            let problemIds = try Self.insertProblems(problems, source: source, modules: modules, now: now, sectionId: sectionId, db: db)
+            for input in cards {
+                var card = Card(
+                    stageIndex: input.stageIndex, moduleId: Self.moduleId(input.moduleKey, in: modules),
+                    front: input.front, back: input.back, tags: input.tags ?? [], step: nil, dueDay: today, createdAt: now,
+                    sectionId: sectionId)
+                try card.insert(db)
+            }
+            var challenge = SectionChallenge(sectionId: sectionId, problemIds: problemIds, createdAt: now, source: source)
+            try challenge.insert(db)
+            return challenge.id!
+        }
+        notifier.post()
+        return id
+    }
+
+    /// 最新一个未过期的闯关。
+    public func latestChallenge(sectionId: Int64) throws -> SectionChallenge? {
+        try pool.read { try Self.latestChallenge($0, sectionId: sectionId) }
+    }
+
+    public func hasSectionCards(sectionId: Int64) throws -> Bool {
+        try pool.read { try Card.filter(Column("sectionId") == sectionId).fetchCount($0) > 0 }
+    }
+
+    /// 没有可用的闯关，或节未掌握且最新闯关最近一次已判卷的作答没过线时，需要生成新闯关。
+    public func challengeNeedsGeneration(sectionId: Int64) throws -> Bool {
+        try pool.read { db in
+            guard let challenge = try Self.latestChallenge(db, sectionId: sectionId) else { return true }
+            guard try TextbookSection.fetchOne(db, key: sectionId)?.masteredAt == nil else { return false }
+            let lastGraded = try Attempt.filter(
+                Column("sectionChallengeId") == challenge.id! && Column("status") == AttemptStatus.graded.rawValue
+            ).order(Column("gradedAt").desc, Column("id").desc).fetchOne(db)
+            return lastGraded?.passed == false
+        }
+    }
+
+    /// 阶段未解锁或闯关已过期时拒绝；同一闯关有未判完的作答时直接返回它。
+    public func startSectionChallenge(challengeId: Int64) throws -> Attempt {
+        let now = clock.now()
+        let attempt = try pool.write { db -> Attempt in
+            guard let challenge = try SectionChallenge.fetchOne(db, key: challengeId) else { throw StoreError.notFound("闯关 \(challengeId)") }
+            guard !challenge.stale else { throw StoreError.invalid("本节内容已更新，请重新闯关") }
+            guard let section = try TextbookSection.fetchOne(db, key: challenge.sectionId),
+                  let book = try Textbook.fetchOne(db, key: section.textbookId) else { throw StoreError.notFound("章节 \(challenge.sectionId)") }
+            guard let stage = try Stage.fetchOne(db, key: book.stageIndex) else { throw StoreError.notFound("阶段 \(book.stageIndex)") }
+            guard stage.status != .locked else { throw StoreError.blocked("该阶段尚未解锁，可以先阅读，解锁后再闯关") }
+            if let open = try Attempt.filter(
+                Column("sectionChallengeId") == challengeId
+                    && [AttemptStatus.inProgress.rawValue, AttemptStatus.submitted.rawValue].contains(Column("status"))
+            ).order(Column("id").desc).fetchOne(db) {
+                return open
+            }
+            var attempt = Attempt(kind: .section, status: .inProgress, startedAt: now, sectionChallengeId: challengeId)
+            try attempt.insert(db)
+            return attempt
+        }
+        notifier.post()
+        return attempt
+    }
+
+    private static func latestChallenge(_ db: Database, sectionId: Int64) throws -> SectionChallenge? {
+        try SectionChallenge.filter(Column("sectionId") == sectionId && Column("stale") == false)
+            .order(Column("createdAt").desc, Column("id").desc).fetchOne(db)
+    }
+
     public func masteredCount(moduleId: Int64) throws -> (mastered: Int, total: Int) {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: """

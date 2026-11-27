@@ -94,6 +94,7 @@ struct AnswerView: View {
         case .assignment: "作业"
         case .mistakeRedo: "错题重做"
         case .exam: "考试"
+        case .section: "章节闯关"
         case nil: "作答"
         }
     }

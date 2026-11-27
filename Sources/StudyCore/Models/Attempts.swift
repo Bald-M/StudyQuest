@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public enum AttemptKind: String, Codable, DatabaseValueConvertible, Sendable { case assignment, exam, mistakeRedo }
+public enum AttemptKind: String, Codable, DatabaseValueConvertible, Sendable { case assignment, exam, mistakeRedo, section }
 public enum AttemptStatus: String, Codable, DatabaseValueConvertible, Sendable { case inProgress, submitted, graded }
 
 public struct Attempt: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {
