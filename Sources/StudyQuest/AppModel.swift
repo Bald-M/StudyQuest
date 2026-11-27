@@ -64,7 +64,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     private var lastAutoGen: AutoGenStatus = .done
     private var launchInFlight = false
     /// 正在判卷的作答：交卷判卷、手动重新判卷、复判与回前台补判共用，同一作答同一时间只判一次。
-    @ObservationIgnored private var gradingInFlight: Set<Int64> = []
+    /// 需要被观察：结果页据此显示「正在判卷」，否则撞上后台补判时点重新判卷会没有任何反应。
+    private var gradingInFlight: Set<Int64> = []
     /// 本次启动中回前台已自动补判过的作答：每个作答每次启动最多自动补判一次，失败的留给手动重新判卷。
     @ObservationIgnored private var autoGradedThisLaunch: Set<Int64> = []
     /// AppModel 与 App 同生命周期，只需持有观察者令牌。
@@ -84,6 +85,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         do {
             try BackupService.applyPendingRestore(at: url)
         } catch BackupError.pendingRestoreInvalid(let reason) {
+            restoreError = reason
+        } catch BackupError.recoveredOriginal(let reason) {
             restoreError = reason
         } catch {
             restoreError = "从备份恢复失败，继续使用现有数据：\(error)"
@@ -263,6 +266,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         gradingFailures[attemptId] = report.firstError.map(userMessage)
         return report
     }
+
+    func isGrading(attemptId: Int64) -> Bool { gradingInFlight.contains(attemptId) }
 
     func pendingGradingCount(attemptId: Int64) throws -> Int { try store.pendingGrading(attemptId: attemptId).count }
 

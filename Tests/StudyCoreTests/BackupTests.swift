@@ -94,6 +94,116 @@ private func cardCount(_ url: URL) throws -> Int {
         #expect(try cardCount(dbURL) == before)
     }
 
+    @Test func failedWALMoveRestoresOriginal() throws {
+        struct MoveFailed: Error {}
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let backup = dir.appendingPathComponent("backup.sqlite")
+        let before: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            try BackupService.export(database: database, to: backup)
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "恢复前新增", back: "b", tags: nil)], source: "test")
+            before = try database.pool.read { try Card.fetchCount($0) }
+            try BackupService.scheduleRestore(from: backup, dbURL: dbURL)
+            try database.pool.close()
+        }
+        let wal = URL(fileURLWithPath: dbURL.path + "-wal")
+        #expect(FileManager.default.fileExists(atPath: wal.path))
+
+        // 主库已挪到 .pre-restore 之后，挪 -wal 这一步失败
+        #expect(throws: MoveFailed.self) {
+            try BackupService.applyPendingRestore(at: dbURL) { from, to in
+                if from == wal { throw MoveFailed() }
+                try FileManager.default.moveItem(at: from, to: to)
+            }
+        }
+
+        // 主库被放回原处，数据不丢；待恢复文件保留
+        #expect(FileManager.default.fileExists(atPath: dbURL.path))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
+        #expect(FileManager.default.fileExists(atPath: BackupService.pendingRestoreURL(for: dbURL).path))
+        #expect(try cardCount(dbURL) == before)
+    }
+
+    @Test func orphanedPreRestoreIsRecoveredBeforeRestoring() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let backup = dir.appendingPathComponent("backup.sqlite")
+        let exported: Int
+        let original: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            try BackupService.export(database: database, to: backup)
+            exported = try database.pool.read { try Card.fetchCount($0) }
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "只在原库里", back: "b", tags: nil)], source: "test")
+            original = try database.pool.read { try Card.fetchCount($0) }
+            try BackupService.scheduleRestore(from: backup, dbURL: dbURL)
+            try database.pool.close()
+        }
+        // 模拟上次恢复中途出错：原库只剩在 .pre-restore，现库位置是空的
+        let fm = FileManager.default
+        let preRestore = dbURL.path + ".pre-restore"
+        try fm.moveItem(atPath: dbURL.path, toPath: preRestore)
+        try fm.moveItem(atPath: dbURL.path + "-wal", toPath: preRestore + "-wal")
+        try? fm.removeItem(atPath: dbURL.path + "-shm")
+
+        try BackupService.applyPendingRestore(at: dbURL)
+
+        // 恢复照常完成，而唯一的原库副本没有在清理旧 .pre-restore 时被删掉
+        #expect(try cardCount(dbURL) == exported)
+        #expect(fm.fileExists(atPath: preRestore))
+        #expect(try cardCount(URL(fileURLWithPath: preRestore)) == original)
+    }
+
+    /// 造出「上次恢复出错、原库只剩在 .pre-restore」的现场，返回原库里的卡片数。
+    private func makeOrphanedOriginal(at dbURL: URL) throws -> Int {
+        let original: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "只在原库里", back: "b", tags: nil)], source: "test")
+            original = try database.pool.read { try Card.fetchCount($0) }
+            try database.pool.close()
+        }
+        let fm = FileManager.default
+        let preRestore = dbURL.path + ".pre-restore"
+        try fm.moveItem(atPath: dbURL.path, toPath: preRestore)
+        if fm.fileExists(atPath: dbURL.path + "-wal") {
+            try fm.moveItem(atPath: dbURL.path + "-wal", toPath: preRestore + "-wal")
+        }
+        // 留一个陈旧的 -shm，确认找回时会先清掉它
+        fm.createFile(atPath: dbURL.path + "-shm", contents: Data("stale".utf8))
+        return original
+    }
+
+    @Test func orphanedOriginalIsRecoveredWithoutPendingRestore() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let original = try makeOrphanedOriginal(at: dbURL)
+
+        #expect(throws: BackupError.self) { try BackupService.applyPendingRestore(at: dbURL) }
+
+        #expect(FileManager.default.fileExists(atPath: dbURL.path))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
+        #expect(try cardCount(dbURL) == original)
+    }
+
+    @Test func orphanedOriginalIsRecoveredWhenPendingIsInvalid() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let original = try makeOrphanedOriginal(at: dbURL)
+        let pending = BackupService.pendingRestoreURL(for: dbURL)
+        try Data("not a database".utf8).write(to: pending)
+
+        #expect(throws: BackupError.self) { try BackupService.applyPendingRestore(at: dbURL) }
+
+        #expect(!FileManager.default.fileExists(atPath: pending.path))
+        #expect(try cardCount(dbURL) == original)
+    }
+
     @Test func corruptPendingRestoreKeepsLiveDB() throws {
         let dir = makeTempDir()
         let dbURL = dir.appendingPathComponent("studyquest.sqlite")

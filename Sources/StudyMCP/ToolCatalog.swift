@@ -11,7 +11,7 @@ public struct ToolSpec: Sendable {
 public enum ToolCatalog {
     public static let tools: [ToolSpec] = [
         ToolSpec(name: "get_progress", description: "当前阶段、各阶段状态、经验/等级/连续天数、今日经验。", inputSchema: object([:])),
-        ToolSpec(name: "get_today", description: "今日任务清单：到期卡片数、到期错题数、今日作业、待考试卷、待判卷作答数、自动生成状态。",
+        ToolSpec(name: "get_today", description: "今日任务清单：到期卡片数、到期错题数、今日作业、待考试卷、待确认的草稿试卷数、待判卷作答数、自动生成状态。",
                  inputSchema: object([:])),
         ToolSpec(name: "list_stages", description: "全部 10 个阶段及过关线、冷却期、累积题比例、奖励。", inputSchema: object([:])),
         ToolSpec(name: "get_stage", description: "阶段详情：过关规则与模块（学习要点、资源、游戏任务、生活题）。",

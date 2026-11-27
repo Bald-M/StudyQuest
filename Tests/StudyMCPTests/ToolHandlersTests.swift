@@ -216,6 +216,19 @@ private func int(_ value: JSONValue?) -> Int64? {
         ])]))
     }
 
+    @Test func getTodayReportsDraftExams() throws {
+        let (handlers, store) = try makeHandlers()
+        let problem = ProblemInput(stageIndex: 0, moduleKey: "s0.git", kind: .shortAnswer, prompt: "草稿题", options: nil,
+                                   referenceAnswer: "答", rubric: "标", maxScore: 10, difficulty: .medium, tags: nil)
+        let section = SectionInput(title: "周测", weight: 100, source: .problems, problemIds: nil, problems: [problem])
+        _ = try store.createExam(ExamInput(stageIndex: 0, kind: .weeklyQuiz, title: "草稿周测", timeLimitMinutes: 30,
+                                           sections: [section]), source: "app_ai", status: .draft)
+
+        let today = try object(handlers.call(name: "get_today", arguments: [:]))
+        #expect(today["draft_exams"] == .number(1))
+        #expect(today["ready_exams"] == .array([]))
+    }
+
     @Test func toolCatalogMatchesHandlers() throws {
         let expected: Set<String> = [
             "get_progress", "get_today", "list_stages", "get_stage", "create_cards", "create_problems",
