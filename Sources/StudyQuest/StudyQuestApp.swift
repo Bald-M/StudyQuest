@@ -34,6 +34,8 @@ struct StudyQuestApp: App {
                 ReaderView(model: model, route: route)
             }
         }
+        // 不在「文件 > 新建」里出现：阅读器窗口只能从教材或出处链接打开
+        .commandsRemoved()
     }
 }
 

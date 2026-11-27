@@ -59,6 +59,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     var gradingFailures: [Int64: String] = [:]
     /// 每次 refresh 加一；页面据此重读自己的数据。
     var revision = 0
+    /// 出处链接要跳到的节（教材 id → 节 id）；该教材的阅读器窗口读到后清除。
+    var pendingReaderSection: [Int64: Int64] = [:]
 
     /// 最近一次自动生成的结果；当天有数据库记录时以记录为准。
     private var lastAutoGen: AutoGenStatus = .done
@@ -296,13 +298,18 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         var modules: [Module]
         var gate: StageGateStatus
         var exams: [StageExamRow]
+        /// 各模块挂上的章节掌握数（模块 id → 已掌握 / 总数）。
+        var sectionCounts: [Int64: (mastered: Int, total: Int)]
     }
 
     func stageDetail(_ index: Int) throws -> StageDetail {
         let gate = try store.stageGateStatus(stage: index)  // 会同步 needsRelearn，须先于读模块
         let exams = try store.exams(stage: index).filter { $0.kind == .stageExam }
             .reversed().map { StageExamRow(exam: $0, attempts: try store.attempts(examId: $0.id, status: nil)) }
-        return StageDetail(stage: try store.stage(index), modules: try store.modules(stage: index), gate: gate, exams: exams)
+        let modules = try store.modules(stage: index)
+        var sectionCounts: [Int64: (mastered: Int, total: Int)] = [:]
+        for id in modules.compactMap(\.id) { sectionCounts[id] = try store.masteredCount(moduleId: id) }
+        return StageDetail(stage: try store.stage(index), modules: modules, gate: gate, exams: exams, sectionCounts: sectionCounts)
     }
 
     func setModuleStatus(id: Int64, _ status: ModuleStatus) throws {

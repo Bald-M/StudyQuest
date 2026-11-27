@@ -16,7 +16,7 @@ struct SyncPreviewSheet: View {
             Text("更新「\(title)」").font(.headline)
             Text("改了 \(plan.changed.count) 节、新增 \(plan.added.count) 节、删除 \(plan.removed.count) 节")
             if !plan.changed.isEmpty {
-                Text("改过的节需要重新闯关。").font(.caption).foregroundStyle(.secondary)
+                Text("改过的节下次闯关会重新出题").font(.caption).foregroundStyle(.secondary)
             }
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {

@@ -46,7 +46,7 @@ struct MarkdownWebView: NSViewRepresentable {
         return """
             <!doctype html>
             <html><head><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src sqasset:; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src sqasset:; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'; form-action 'none'">
             <style>\(css)</style>
             <script nonce="\(nonce)">\(marked)</script>
             </head><body><article id="content"></article>
@@ -108,13 +108,21 @@ struct MarkdownWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 
-        /// 正文里的链接不在阅读器里跳转：网页链接交给默认浏览器，页内锚点照常。
+        /// 只放行 loadHTMLString 的首次加载（about:blank）与页内锚点；其余导航一律取消，点到的网页链接交给默认浏览器。
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
-            guard action.navigationType == .linkActivated, let url = action.request.url, url.scheme != "about" else {
+            guard let url = action.request.url else {
+                decisionHandler(.cancel)
+                return
+            }
+            let initialLoad = action.navigationType == .other && url.absoluteString == "about:blank"
+            // 页内锚点的请求地址是 about:blank%23x（# 被编码），不是 about:blank#x
+            let anchor = action.navigationType == .linkActivated && url.scheme == "about"
+                && (url.fragment != nil || url.absoluteString.hasPrefix("about:blank%23"))
+            if initialLoad || anchor {
                 decisionHandler(.allow)
                 return
             }
-            if url.scheme == "http" || url.scheme == "https" { NSWorkspace.shared.open(url) }
+            if action.navigationType == .linkActivated, url.scheme == "http" || url.scheme == "https" { NSWorkspace.shared.open(url) }
             decisionHandler(.cancel)
         }
     }

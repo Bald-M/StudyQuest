@@ -139,7 +139,7 @@ struct TextbooksSection: View {
             }
             Spacer()
             Menu {
-                Button("阅读") { openWindow(value: ReaderRoute(textbookId: book.id, sectionId: nil)) }
+                Button("阅读") { openWindow(value: ReaderRoute(textbookId: book.id)) }
                 Button("挂模块") { controller.sheet = .mapping(textbookId: book.id, title: book.title) }
                 Button("从原文件更新") { controller.preview(book, from: nil) }.disabled(controller.busy != nil)
                 Divider()

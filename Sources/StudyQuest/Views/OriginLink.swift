@@ -15,7 +15,9 @@ struct OriginLink: View {
                 switch origin.availability {
                 case .available:
                     Button("出自《\(origin.textbookTitle)》\(origin.sectionTitle)") {
-                        openWindow(value: ReaderRoute(textbookId: origin.textbookId, sectionId: origin.sectionId))
+                        // 该教材的窗口已打开时只会被提到前面，由它读 pendingReaderSection 跳到这一节
+                        model.pendingReaderSection[origin.textbookId] = origin.sectionId
+                        openWindow(value: ReaderRoute(textbookId: origin.textbookId))
                     }
                     .buttonStyle(.link)
                 case .sectionRemoved:

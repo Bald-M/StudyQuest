@@ -81,13 +81,13 @@ struct StageDetailView: View {
     private func modulesSection(_ detail: AppModel.StageDetail) -> some View {
         Section("模块") {
             ForEach(detail.modules) { module in
-                moduleRow(module)
+                moduleRow(module, sections: module.id.flatMap { detail.sectionCounts[$0] })
             }
             if let moduleError { Text(moduleError).font(.caption).foregroundStyle(.red) }
         }
     }
 
-    private func moduleRow(_ module: Module) -> some View {
+    private func moduleRow(_ module: Module, sections: (mastered: Int, total: Int)?) -> some View {
         let id = module.id ?? 0
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
@@ -102,6 +102,9 @@ struct StageDetailView: View {
             }
             if !module.points.isEmpty {
                 Text(module.points).font(.callout).foregroundStyle(.secondary)
+            }
+            if let sections, sections.total > 0 {
+                Text("相关章节 已掌握 \(sections.mastered) / \(sections.total)").font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
                 generateButton("生成作业", key: "assignment-\(id)") { try await model.generateAssignment(moduleId: id) }

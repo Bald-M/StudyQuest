@@ -1,13 +1,14 @@
 import StudyCore
 import SwiftUI
 
-/// 阅读器窗口的值：每本教材一个窗口。`sectionId` 非 nil 时打开后定位到该节。
+/// 阅读器窗口的值：每本教材一个窗口，已打开时再打开只会把它提到前面。
+/// 要跳到某一节时先写 `AppModel.pendingReaderSection`，窗口读到后定位。
 struct ReaderRoute: Hashable, Codable {
     var textbookId: Int64
-    var sectionId: Int64?
 }
 
 /// 教材阅读器：左侧目录（✓ 已掌握、▶ 可读、🔒 未解锁），右侧正文，底部开始闯关。
+/// 阶段未解锁时每一节都能读（只是不能闯关）；阶段已解锁时未解锁的节不能选。
 /// 作答页以 sheet 出现在本窗口里。
 struct ReaderView: View {
     let model: AppModel
@@ -40,7 +41,7 @@ struct ReaderView: View {
             if let snapshot {
                 if let book = snapshot.textbook {
                     NavigationSplitView {
-                        sidebar(snapshot.rows)
+                        sidebar(snapshot.rows, stageLocked: snapshot.stageLocked)
                             .navigationSplitViewColumnWidth(min: 200, ideal: 240)
                     } detail: {
                         detail(book: book, stageLocked: snapshot.stageLocked)
@@ -54,8 +55,11 @@ struct ReaderView: View {
         }
         .frame(minWidth: 760, minHeight: 520)
         .navigationTitle(snapshot?.textbook?.title ?? "教材")
-        .task { await reload(initial: true) }
-        .onChange(of: model.revision) { Task { await reload(initial: false) } }
+        .task { await reload() }
+        .onChange(of: model.revision) { Task { await reload() } }
+        .onChange(of: model.pendingReaderSection[route.textbookId]) {
+            if let snapshot { selectPending(in: snapshot) }
+        }
         .onChange(of: selectedId) {
             if let selectedId { model.setLastRead(textbookId: route.textbookId, sectionId: selectedId) }
         }
@@ -72,7 +76,7 @@ struct ReaderView: View {
 
     // MARK: 目录
 
-    private func sidebar(_ rows: [SectionRow]) -> some View {
+    private func sidebar(_ rows: [SectionRow], stageLocked: Bool) -> some View {
         List(selection: $selectedId) {
             ForEach(chapters(rows), id: \.offset) { _, chapter in
                 Section(chapter.title) {
@@ -83,7 +87,7 @@ struct ReaderView: View {
                         }
                         .foregroundStyle(row.state == .locked ? .secondary : .primary)
                         .tag(row.section.id)
-                        .selectionDisabled(row.state == .locked)
+                        .selectionDisabled(row.state == .locked && !stageLocked)
                     }
                 }
             }
@@ -184,16 +188,27 @@ struct ReaderView: View {
 
     // MARK: 加载
 
-    private func reload(initial: Bool) async {
+    /// 能选的节：阶段未解锁时全部，否则不含未解锁的节。
+    private func readableIds(_ snapshot: AppModel.ReaderSnapshot) -> [Int64] {
+        snapshot.rows.filter { snapshot.stageLocked || $0.state != .locked }.compactMap(\.section.id)
+    }
+
+    /// 取走出处链接留下的目标节；能选时定位过去。返回是否定位了。
+    @discardableResult private func selectPending(in snapshot: AppModel.ReaderSnapshot) -> Bool {
+        guard let id = model.pendingReaderSection.removeValue(forKey: route.textbookId), readableIds(snapshot).contains(id) else { return false }
+        selectedId = id
+        return true
+    }
+
+    private func reload() async {
         do {
             let next = try await model.readerSnapshot(textbookId: route.textbookId)
             snapshot = next
             loadError = nil
-            let open = next.rows.filter { $0.state != .locked }.compactMap(\.section.id)
+            if selectPending(in: next) { return }
+            let open = readableIds(next)
             if let selectedId, open.contains(selectedId) { return }
-            if initial, let id = route.sectionId, open.contains(id) {
-                selectedId = id
-            } else if let last = next.textbook?.lastSectionId, open.contains(last) {
+            if let last = next.textbook?.lastSectionId, open.contains(last) {
                 selectedId = last
             } else {
                 selectedId = (next.rows.first { $0.state == .unlocked } ?? next.rows.first)?.section.id
