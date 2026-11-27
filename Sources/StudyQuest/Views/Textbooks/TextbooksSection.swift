@@ -3,26 +3,27 @@ import StudyCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// 阶段详情里“教材”区的状态与动作：列表、导入、挂模块、从原文件更新、删除。
-/// 由 StageDetailView 持有；表单行与弹出内容分开挂，弹出内容挂在 Form 之外，只出现一次。
+/// 教材列表的状态与动作：列表、导入、挂模块、从原文件更新、删除。
+/// 阶段详情（`stageIndex` 为该阶段）与资料库（`stageIndex` 为 nil，列出全部阶段）共用；表单行与弹出内容分开挂，弹出内容挂在 Form 之外，只出现一次。
 @MainActor @Observable final class TextbooksController {
     enum ActiveSheet: Identifiable {
         case importing(ParsedTextbook, sourcePath: String)
-        case mapping(textbookId: Int64, title: String)
+        case mapping(textbookId: Int64, title: String, stageIndex: Int)
         /// `sourcePath` 非 nil 表示用户重新选择了原文件位置，更新时一并保存。
         case sync(TextbookSummary, SyncPlan, ParsedTextbook, sourcePath: String?)
 
         var id: String {
             switch self {
             case .importing(_, let path): "import-\(path)"
-            case .mapping(let id, _): "mapping-\(id)"
+            case .mapping(let id, _, _): "mapping-\(id)"
             case .sync(let book, _, _, _): "sync-\(book.id)"
             }
         }
     }
 
     let model: AppModel
-    let stageIndex: Int
+    /// nil 表示资料库：列出全部阶段，导入时由用户选择阶段。
+    let stageIndex: Int?
 
     var rows: [TextbookSummary] = []
     /// 正在解析或比对时的说明；非空时导入与更新按钮禁用。
@@ -32,7 +33,7 @@ import UniformTypeIdentifiers
     var deleteTarget: TextbookSummary?
     var missingSource: TextbookSummary?
 
-    init(model: AppModel, stageIndex: Int) {
+    init(model: AppModel, stageIndex: Int?) {
         self.model = model
         self.stageIndex = stageIndex
     }
@@ -112,14 +113,13 @@ import UniformTypeIdentifiers
 /// 表单里的“教材”区，只放行内容；弹出内容见 `TextbooksPresentations`。
 struct TextbooksSection: View {
     let controller: TextbooksController
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Section("教材") {
             if controller.rows.isEmpty {
                 Text("还没有教材。可以导入 .md、.pdf 文件或 Markdown 文件夹。").foregroundStyle(.secondary)
             }
-            ForEach(controller.rows) { row($0) }
+            ForEach(controller.rows) { TextbookRowView(controller: controller, book: $0) }
             HStack(spacing: 8) {
                 Button("导入教材", action: controller.chooseImport).disabled(controller.busy != nil)
                 if let busy = controller.busy {
@@ -131,16 +131,30 @@ struct TextbooksSection: View {
         }
     }
 
-    private func row(_ book: TextbookSummary) -> some View {
+}
+
+/// 教材列表的一行：书名、掌握进度与操作菜单。资料库里另外显示教材类型。
+struct TextbookRowView: View {
+    let controller: TextbooksController
+    let book: TextbookSummary
+    @Environment(\.openWindow) private var openWindow
+
+    private var detail: String {
+        let progress = "已掌握 \(book.mastered) / \(book.total) 节"
+        guard controller.stageIndex == nil else { return progress }
+        return (book.sourceKind == .pdf ? "PDF" : "Markdown") + " · " + progress
+    }
+
+    var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)
-                Text("已掌握 \(book.mastered) / \(book.total) 节").font(.caption).foregroundStyle(.secondary)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
             Menu {
                 Button("阅读") { openWindow(value: ReaderRoute(textbookId: book.id)) }
-                Button("挂模块") { controller.sheet = .mapping(textbookId: book.id, title: book.title) }
+                Button("挂模块") { controller.sheet = .mapping(textbookId: book.id, title: book.title, stageIndex: book.stageIndex) }
                 Button("从原文件更新") { controller.preview(book, from: nil) }.disabled(controller.busy != nil)
                 Divider()
                 Button("删除", role: .destructive) { controller.deleteTarget = book }
@@ -176,14 +190,17 @@ struct TextbooksPresentations: ViewModifier {
     }
 
     @ViewBuilder private func sheetView(_ active: TextbooksController.ActiveSheet) -> some View {
-        let model = controller.model, stageIndex = controller.stageIndex
+        let model = controller.model
         switch active {
         case .importing(let parsed, let path):
-            ImportTextbookSheet(parsed: parsed, onCancel: { controller.sheet = nil }) {
-                let id = try await model.importTextbook(parsed, stage: stageIndex, sourcePath: path)
-                controller.sheet = .mapping(textbookId: id, title: parsed.title)
+            // 资料库导入时让用户选阶段，默认当前正在学的阶段；阶段详情里固定为该阶段
+            ImportTextbookSheet(parsed: parsed, stages: controller.stageIndex == nil ? (try? model.stages()) : nil,
+                                defaultStage: controller.stageIndex ?? model.progress?.currentStage ?? 0,
+                                onCancel: { controller.sheet = nil }) { stage in
+                let id = try await model.importTextbook(parsed, stage: stage, sourcePath: path)
+                controller.sheet = .mapping(textbookId: id, title: parsed.title, stageIndex: stage)
             }
-        case .mapping(let id, let title):
+        case .mapping(let id, let title, let stageIndex):
             ModuleMappingSheet(model: model, textbookId: id, title: title, stageIndex: stageIndex) { controller.sheet = nil }
         case .sync(let book, let plan, let parsed, let sourcePath):
             SyncPreviewSheet(title: book.title, plan: plan, onCancel: { controller.sheet = nil }) {

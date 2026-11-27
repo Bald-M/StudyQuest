@@ -54,6 +54,7 @@ struct RootView: View {
                 case .today: TodayView(model: model)
                 case .review: ReviewView(model: model)
                 case .map: MapView(model: model)
+                case .library: NavigationStack { LibraryView(model: model) }
                 case .mistakes: MistakesView(model: model)
                 case .practice: PracticeView(model: model)
                 case .exams: ExamsView(model: model)

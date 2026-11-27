@@ -4,7 +4,7 @@ import Observation
 import StudyCore
 
 enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case today, map, review, mistakes, practice, exams, growth, settings
+    case today, map, library, review, mistakes, practice, exams, growth, settings
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .today: "今日"
         case .map: "地图"
+        case .library: "资料库"
         case .review: "复习"
         case .mistakes: "错题本"
         case .practice: "练习与作业"
@@ -25,6 +26,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .today: "sun.max"
         case .map: "map"
+        case .library: "books.vertical"
         case .review: "rectangle.on.rectangle"
         case .mistakes: "exclamationmark.bubble"
         case .practice: "square.and.pencil"

@@ -1,19 +1,35 @@
 import StudyCore
 import SwiftUI
 
-/// 解析完成后、写入前的确认：书名、节数与解析提示。
+/// 解析完成后、写入前的确认：书名、节数与解析提示。`stages` 非 nil 时（资料库导入）可选择所属阶段。
 struct ImportTextbookSheet: View {
     let parsed: ParsedTextbook
+    let stages: [Stage]?
     let onCancel: () -> Void
-    let onImport: () async throws -> Void
+    let onImport: (Int) async throws -> Void
 
+    @State private var stage: Int
     @State private var working = false
     @State private var error: String?
+
+    init(parsed: ParsedTextbook, stages: [Stage]?, defaultStage: Int, onCancel: @escaping () -> Void, onImport: @escaping (Int) async throws -> Void) {
+        self.parsed = parsed
+        self.stages = stages
+        self.onCancel = onCancel
+        self.onImport = onImport
+        _stage = State(initialValue: defaultStage)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("导入「\(parsed.title)」").font(.headline)
             Text("共 \(parsed.sections.count) 节").foregroundStyle(.secondary)
+            if let stages {
+                Picker("所属阶段", selection: $stage) {
+                    ForEach(stages) { Text("阶段 \($0.index)：\($0.title)").tag($0.index) }
+                }
+                .disabled(working)
+            }
             if !parsed.warnings.isEmpty {
                 Text("解析提示").font(.subheadline.bold())
                 ScrollView {
@@ -36,7 +52,7 @@ struct ImportTextbookSheet: View {
                     working = true
                     error = nil
                     Task {
-                        do { try await onImport() } catch { self.error = userMessage(error) }
+                        do { try await onImport(stage) } catch { self.error = userMessage(error) }
                         working = false
                     }
                 }

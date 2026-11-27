@@ -29,6 +29,14 @@ public struct TextbookSummary: Identifiable, Equatable, Sendable {
     public var total: Int
 }
 
+extension TextbookSummary {
+    /// 资料库搜索：查询去掉首尾空白后为空时全部匹配，否则按书名做不区分大小写的包含匹配。
+    public func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return q.isEmpty || title.localizedCaseInsensitiveContains(q)
+    }
+}
+
 extension StudyStore {
     public func importTextbook(_ parsed: ParsedTextbook, stageIndex: Int, sourcePath: String) throws -> Int64 {
         guard !parsed.sections.isEmpty else { throw StoreError.invalid("没有可导入的内容") }

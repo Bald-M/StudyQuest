@@ -190,6 +190,14 @@ final class FullTextbookReads: @unchecked Sendable {
         #expect(try store.textbookSummaries(stage: 0).map(\.id) == [a, b])
     }
 
+    @Test func searchIsCaseInsensitive() {
+        let book = TextbookSummary(id: 1, stageIndex: 0, title: "HTTP 小册", sourceKind: .pdf, sourcePath: "/h.pdf", mastered: 0, total: 1)
+        #expect(book.matches("http"))
+        #expect(book.matches("  "))
+        #expect(book.matches("小册"))
+        #expect(!book.matches("tcp"))
+    }
+
     @Test func applySyncUpdatesSourcePathOnlyWhenProvided() throws {
         let store = try makeStore()
         let id = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/old.md")
