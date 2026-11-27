@@ -36,7 +36,7 @@ struct SettingsView: View {
         .onAppear(perform: reload)
         .onChange(of: model.revision) { reload() }
         .sheet(item: $editing) { config in
-            ProviderEditor(config: config, isNew: !providers.contains { $0.id == config.id }) { saved, key in
+            ProviderEditor(config: config, isNew: !providers.contains { $0.id == config.id }, registry: model.registry) { saved, key in
                 save(saved, apiKey: key)
             }
         }
@@ -344,9 +344,12 @@ private struct StageSettingsRow: View {
 private struct ProviderEditor: View {
     @State var config: ProviderConfig
     let isNew: Bool
+    let registry: ProviderRegistry
     let onSave: (ProviderConfig, String?) -> Void
 
     @State private var apiKey = ""
+    @State private var models: [String] = []
+    @State private var modelsStatus: String?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -358,7 +361,24 @@ private struct ProviderEditor: View {
             .onChange(of: config.kind) { applyDefaults() }
             TextField("名称", text: $config.name)
             TextField("Base URL", text: $config.baseURL)
-            TextField("模型", text: $config.model)
+            LabeledContent("模型") {
+                HStack {
+                    TextField("模型", text: $config.model, prompt: Text(modelsStatus ?? ""))
+                        .labelsHidden()
+                    Menu {
+                        ForEach(models, id: \.self) { id in
+                            Button(id) { config.model = id }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.up.chevron.down")
+                    }
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .disabled(models.isEmpty)
+                    .help(modelsStatus ?? "从服务商的模型列表中选择")
+                }
+            }
+            .task(id: ModelQuery(kind: config.kind, baseURL: config.baseURL, apiKey: apiKey)) { await loadModels() }
             if config.kind == .anthropic {
                 TextField("effort", text: Binding(get: { config.effort ?? "medium" }, set: { config.effort = $0 }))
             }
@@ -375,6 +395,29 @@ private struct ProviderEditor: View {
                 }
                 .disabled(config.name.isEmpty || config.baseURL.isEmpty || config.model.isEmpty || (isNew && apiKey.isEmpty))
             }
+        }
+    }
+
+    private struct ModelQuery: Equatable { let kind: ProviderKind; let baseURL: String; let apiKey: String }
+
+    /// 地址、类型或 Key 变化后稍等再查，避免逐字输入时连发请求。新建且没填 Key 时不查。
+    private func loadModels() async {
+        models = []
+        guard !(isNew && apiKey.isEmpty), !config.baseURL.isEmpty else {
+            modelsStatus = isNew ? "填写 API Key 后可从列表选择" : nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(600))
+        guard !Task.isCancelled else { return }
+        modelsStatus = "正在获取模型列表…"
+        do {
+            let ids = try await registry.availableModels(for: config, apiKey: apiKey)
+            guard !Task.isCancelled else { return }
+            models = ids
+            modelsStatus = ids.isEmpty ? "服务商没有返回模型，请手动填写" : nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            modelsStatus = "获取模型列表失败，请手动填写"
         }
     }
 

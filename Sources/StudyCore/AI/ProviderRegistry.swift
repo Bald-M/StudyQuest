@@ -64,6 +64,36 @@ public struct ProviderRegistry: Sendable {
         }
     }
 
+    /// 向服务商查询可用模型 id（OpenAI 兼容：`GET {base}/models`；Anthropic：`GET {base}/v1/models`）。
+    /// `apiKey` 为空时用已保存的 Key。
+    public func availableModels(for config: ProviderConfig, apiKey: String?) async throws -> [String] {
+        let key: String
+        if let apiKey, !apiKey.isEmpty {
+            key = apiKey
+        } else {
+            guard let saved = try secrets.get(config.id), !saved.isEmpty else { throw AIError.notConfigured(config.name) }
+            key = saved
+        }
+        guard let base = URL(string: config.baseURL) else { throw AIError.notConfigured("baseURL") }
+        var request: URLRequest
+        switch config.kind {
+        case .openAICompatible:
+            request = URLRequest(url: try joinURL(base, "/models"))
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        case .anthropic:
+            var parts = URLComponents(url: try joinURL(base, "/v1/models"), resolvingAgainstBaseURL: false)!
+            parts.queryItems = [URLQueryItem(name: "limit", value: "1000")]
+            request = URLRequest(url: parts.url!)
+            request.setValue(key, forHTTPHeaderField: "x-api-key")
+            request.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
+        }
+        let data = try await http.sendChecked(request)
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = root["data"] as? [[String: Any]]
+        else { throw AIError.emptyResponse }
+        return items.compactMap { $0["id"] as? String }.sorted()
+    }
+
     private func makeModel(_ config: ProviderConfig, role: String) throws -> ChatModel {
         guard let key = try secrets.get(config.id), !key.isEmpty, let url = URL(string: config.baseURL) else {
             throw AIError.notConfigured(role)
