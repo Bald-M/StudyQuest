@@ -45,7 +45,7 @@ struct ModuleMappingSheet: View {
             HStack {
                 Spacer()
                 Button("稍后再说", action: onDone).keyboardShortcut(.cancelAction)
-                Button("保存", action: save).keyboardShortcut(.defaultAction).disabled(loading)
+                Button("保存", action: save).keyboardShortcut(.defaultAction).disabled(loading || suggesting || sections.isEmpty)
             }
         }
         .padding(20)

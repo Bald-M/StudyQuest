@@ -27,6 +27,13 @@ struct StageDetailView: View {
     @State private var errors: [String: String] = [:]
     @State private var moduleError: String?
     @State private var showInterview = false
+    @State private var textbooks: TextbooksController
+
+    init(model: AppModel, stageIndex: Int) {
+        self.model = model
+        self.stageIndex = stageIndex
+        _textbooks = State(initialValue: TextbooksController(model: model, stageIndex: stageIndex))
+    }
 
     var body: some View {
         Group {
@@ -34,7 +41,7 @@ struct StageDetailView: View {
                 Form {
                     overview(detail.stage)
                     modulesSection(detail)
-                    TextbooksSection(model: model, stageIndex: stageIndex)
+                    TextbooksSection(controller: textbooks)
                     materialsSection(detail.modules)
                     examSection(detail)
                 }
@@ -47,6 +54,7 @@ struct StageDetailView: View {
         .onAppear(perform: reload)
         .onChange(of: model.revision) { reload() }
         .sheet(isPresented: $showInterview) { InterviewView(model: model, interviewId: nil) }
+        .modifier(TextbooksPresentations(controller: textbooks))
     }
 
     // MARK: 简介与过关规则

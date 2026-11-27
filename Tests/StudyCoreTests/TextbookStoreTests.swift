@@ -108,4 +108,14 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
         #expect(summaries[0].sourceKind == .pdf && summaries[0].sourcePath == "/a.pdf" && summaries[0].title == "教材")
         #expect(summaries[1].mastered == 0 && summaries[1].total == 2)
     }
+
+    @Test func applySyncUpdatesSourcePathOnlyWhenProvided() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/old.md")
+        try store.applySync(textbookId: id, parsed: parsed(count: 2))
+        #expect(try store.textbookSummaries(stage: 0).first?.sourcePath == "/old.md")
+        try store.applySync(textbookId: id, parsed: parsed(count: 3), sourcePath: "/new.md")
+        let summary = try #require(try store.textbookSummaries(stage: 0).first)
+        #expect(summary.sourcePath == "/new.md" && summary.total == 3)
+    }
 }

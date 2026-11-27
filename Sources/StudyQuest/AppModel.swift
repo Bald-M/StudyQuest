@@ -382,9 +382,10 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         }.value
     }
 
-    func applySync(textbookId: Int64, parsed: ParsedTextbook) async throws {
+    /// `sourcePath` 为重新选择的原文件位置；nil 表示沿用原路径。
+    func applySync(textbookId: Int64, parsed: ParsedTextbook, sourcePath: String? = nil) async throws {
         let store = store
-        try await Task.detached { try store.applySync(textbookId: textbookId, parsed: parsed) }.value
+        try await Task.detached { try store.applySync(textbookId: textbookId, parsed: parsed, sourcePath: sourcePath) }.value
         refresh()
     }
 

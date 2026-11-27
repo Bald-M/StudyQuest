@@ -153,7 +153,8 @@ extension StudyStore {
         }
     }
 
-    public func applySync(textbookId: Int64, parsed: ParsedTextbook) throws {
+    /// `sourcePath` 非 nil 时（用户重新选择了原文件位置）在同一事务里一并保存。
+    public func applySync(textbookId: Int64, parsed: ParsedTextbook, sourcePath: String? = nil) throws {
         guard !parsed.sections.isEmpty else { throw StoreError.invalid("没有可导入的内容") }
         let now = clock.now()
         try pool.write { db in
@@ -202,6 +203,7 @@ extension StudyStore {
                 }
             }
             book.title = parsed.title
+            if let sourcePath { book.sourcePath = sourcePath }
             if let last = book.lastSectionId, removedIds.contains(last) { book.lastSectionId = nil }
             try book.update(db)
         }
