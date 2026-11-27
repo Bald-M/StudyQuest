@@ -102,4 +102,36 @@ private func write(_ text: String, to url: URL) throws {
             #expect(error.localizedDescription == "没有可导入的内容")
         }
     }
+
+    @Test func trailingHashOnlyStrippedAfterSpace() throws {
+        let dir = try makeTempDir()
+        let file = dir.appendingPathComponent("h.md")
+        try write("# 章\n## 学习 C#\n甲\n## 标题 ##\n乙", to: file)
+        let book = try MarkdownTextbookReader.read(file: file)
+        #expect(book.sections.map(\.title) == ["学习 C#", "标题"])
+    }
+
+    @Test func nestedAndMismatchedFencesDoNotSplit() throws {
+        let dir = try makeTempDir()
+        let a = dir.appendingPathComponent("a.md")
+        try write("# 章\n## 节\n````md\n```python\n## 假标题\n```\n## 还是假的\n````\n后文", to: a)
+        let bookA = try MarkdownTextbookReader.read(file: a)
+        #expect(bookA.sections.map(\.title) == ["节"])
+        #expect(bookA.sections[0].text.contains("## 还是假的") && bookA.sections[0].text.contains("后文"))
+
+        let b = dir.appendingPathComponent("b.md")
+        try write("# 章\n## 节\n~~~\n```\n# x\n~~~\n尾", to: b)
+        let bookB = try MarkdownTextbookReader.read(file: b)
+        #expect(bookB.sections.map(\.title) == ["节"])
+        #expect(bookB.sections[0].text.contains("# x"))
+    }
+
+    @Test func unclosedFenceRunsToEndOfFile() throws {
+        let dir = try makeTempDir()
+        let file = dir.appendingPathComponent("u.md")
+        try write("# 章\n## 节\n```\ncode\n## 不是标题\n更多", to: file)
+        let book = try MarkdownTextbookReader.read(file: file)
+        #expect(book.sections.map(\.title) == ["节"])
+        #expect(book.sections[0].text.contains("更多"))
+    }
 }

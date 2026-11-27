@@ -99,9 +99,12 @@ public enum MarkdownTextbookReader {
         let rest = line.dropFirst(level)
         guard rest.first == " " else { return nil }
         var title = rest.trimmingCharacters(in: .whitespaces)
-        // 去掉可选的结尾 #
-        while title.hasSuffix("#") { title.removeLast() }
-        title = title.trimmingCharacters(in: .whitespaces)
+        // 结尾的 # 只有前面是空格（或整个标题都是 #）时才算关闭序列，C#、F# 不动
+        var stripped = title
+        while stripped.hasSuffix("#") { stripped.removeLast() }
+        if stripped.isEmpty || stripped.hasSuffix(" ") || stripped.hasSuffix("\t") {
+            title = stripped.trimmingCharacters(in: .whitespaces)
+        }
         return title.isEmpty ? nil : (level, title)
     }
 
@@ -109,12 +112,20 @@ public enum MarkdownTextbookReader {
     private static func split(_ text: String, relativePath: String, fileTitle: String, chapterFromFile: Bool) -> [ParsedSection] {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
         // 第一遍：找最高级标题
-        var inFence = false
+        // 围栏按 CommonMark 匹配：记下开栏字符和长度，只有同字符且不短于开栏的纯围栏行才关闭
+        var fence: (char: Character, length: Int)?
         var marks: [(index: Int, level: Int, title: String)] = []
         for (i, line) in lines.enumerated() {
             let t = line.trimmingCharacters(in: .whitespaces)
-            if t.hasPrefix("```") || t.hasPrefix("~~~") { inFence.toggle(); continue }
-            if !inFence, let h = heading(line) { marks.append((i, h.0, h.1)) }
+            if let open = fence {
+                if t.count >= open.length, t.allSatisfy({ $0 == open.char }) { fence = nil }
+                continue
+            }
+            if let c = t.first, c == "`" || c == "~" {
+                let run = t.prefix { $0 == c }.count
+                if run >= 3 { fence = (c, run); continue }
+            }
+            if let h = heading(line) { marks.append((i, h.0, h.1)) }
         }
         guard let top = marks.map(\.level).min() else {
             return [ParsedSection(matchKey: "\(relativePath)|\(fileTitle)|\(fileTitle)#1", chapterTitle: fileTitle, title: fileTitle, text: text.trimmingCharacters(in: .whitespacesAndNewlines))]
