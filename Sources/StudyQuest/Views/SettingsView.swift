@@ -212,6 +212,9 @@ struct SettingsView: View {
 private struct MCPSection: View {
     private let path = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("studyquest-mcp").path
 
+    @State private var busy: String?
+    @State private var results: [String: String] = [:]
+
     var body: some View {
         Section("MCP 接入") {
             LabeledContent("studyquest-mcp") {
@@ -221,27 +224,86 @@ private struct MCPSection: View {
                 Text("该路径下没有找到 studyquest-mcp，请用 scripts/bundle-app.sh 打包后再配置。")
                     .foregroundStyle(.secondary)
             }
-            snippet("Claude Code", "claude mcp add studyquest -- \(shellQuoted(path))")
-            snippet("Codex（~/.codex/config.toml）", "[mcp_servers.studyquest]\ncommand = \"\(path)\"")
-        }
-    }
-
-    /// 单引号包住路径，内嵌的 ' 写成 '\''，路径含空格等字符时命令照样可用。
-    private func shellQuoted(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    private func snippet(_ title: String, _ text: String) -> some View {
-        LabeledContent(title) {
-            HStack(alignment: .top) {
-                Text(text).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                Button("复制") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                }
+            connectRow("Claude Code", detail: "claude mcp add -s user") {
+                try runShell("claude mcp remove -s user studyquest >/dev/null 2>&1; claude mcp add -s user studyquest -- \(shellQuoted(path))")
+                return "已连接，新开的 Claude Code 会话可用。"
+            }
+            connectRow("Codex", detail: "codex mcp add") {
+                try runShell("codex mcp remove studyquest >/dev/null 2>&1; codex mcp add studyquest -- \(shellQuoted(path))")
+                return "已连接，新开的 Codex 会话可用。"
+            }
+            connectRow("DeepSeek Harness", detail: "~/.dsh/cordis.patch.yml") {
+                try connectDeepSeekHarness()
+                return "已写入配置，重启 DeepSeek Harness 后生效。"
             }
         }
     }
+
+    private func connectRow(_ title: String, detail: String, action: @escaping @Sendable () throws -> String) -> some View {
+        LabeledContent {
+            HStack {
+                if let result = results[title] {
+                    Text(result).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                if busy == title { ProgressView().controlSize(.small) }
+                Button("连接") {
+                    busy = title
+                    results[title] = nil
+                    Task {
+                        let outcome = await Task.detached {
+                            do { return try action() } catch { return "连接失败：\(error.displayText)" }
+                        }.value
+                        results[title] = outcome
+                        busy = nil
+                    }
+                }
+                .disabled(busy != nil || !FileManager.default.fileExists(atPath: path))
+            }
+        } label: {
+            Text(title)
+            Text(detail).font(.system(.caption, design: .monospaced))
+        }
+    }
+
+    /// 用交互式登录 shell 执行（会读 ~/.zprofile 和 ~/.zshrc），GUI 应用才能拿到 Homebrew、nvm 等加进 PATH 的命令。
+    nonisolated private func runShell(_ command: String) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-ilc", command]
+        process.standardInput = FileHandle.nullDevice
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw ConnectError(text.isEmpty ? "命令退出码 \(process.terminationStatus)" : text)
+        }
+    }
+
+    nonisolated private func connectDeepSeekHarness() throws {
+        let env = ProcessInfo.processInfo.environment["DSH_HOME"]
+        let home = env.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".dsh")
+        guard FileManager.default.fileExists(atPath: home.path) else {
+            throw ConnectError("没有找到 \(home.path)，请先安装并运行一次 DeepSeek Harness。")
+        }
+        let file = home.appendingPathComponent("cordis.patch.yml")
+        let existing = FileManager.default.fileExists(atPath: file.path) ? try String(contentsOf: file, encoding: .utf8) : ""
+        try DeepSeekHarnessConfig.upsert(into: existing, command: path).write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    /// 单引号包住路径，内嵌的 ' 写成 '\''，路径含空格等字符时命令照样可用。
+    nonisolated private func shellQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private struct ConnectError: LocalizedError {
+    let errorDescription: String?
+    init(_ message: String) { errorDescription = message }
 }
 
 // MARK: - 单个阶段

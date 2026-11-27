@@ -19,3 +19,4 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - AI grading and generation through OpenAI-compatible or Anthropic providers, with API keys kept in the Keychain.
 - Built-in MCP server (`studyquest-mcp`) for reading progress, creating cards, problems, assignments, and exams, and submitting grades.
 - Database export and restore from Settings.
+- One-click MCP connect for Claude Code, Codex, and DeepSeek Harness from Settings.
