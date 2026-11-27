@@ -10,10 +10,9 @@ struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
 
     /// 打包后的 `Contents/Resources/Web/marked.min.js`；直接 `swift run` 时找不到，为 nil。
-    static let marked: (url: URL, source: String)? = {
-        guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js", subdirectory: "Web"),
-              let source = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        return (url, source)
+    static let marked: String? = {
+        guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js", subdirectory: "Web") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
     }()
 
     func makeCoordinator() -> Coordinator { Coordinator(store: store) }
@@ -37,20 +36,31 @@ struct MarkdownWebView: NSViewRepresentable {
         view.loadHTMLString(Self.page(markdown: markdown, marked: marked), baseURL: nil)
     }
 
-    /// marked 内联进页面：WKWebView 不允许 loadHTMLString 的页面读取本地文件，CSP 里的文件 URL 也匹配不上。
-    static func page(markdown: String, marked: (url: URL, source: String)) -> String {
-        // JSONEncoder 默认把 "/" 转成 "\/"，正文里的 </script> 不会提前结束脚本
-        let json = (try? JSONEncoder().encode([markdown])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+    /// marked 内联进页面：WKWebView 不允许 loadHTMLString 的页面读取本地文件。
+    /// 每次渲染一个随机 nonce，只有带它的两段脚本能执行，正文里夹带的 HTML 脚本与事件属性都会被 CSP 拦下。
+    static func page(markdown: String, marked: String) -> String {
+        // 把 "<" 转义，正文里的 <!-- 或 </script> 不会改变脚本块的解析
+        let json = ((try? JSONEncoder().encode([markdown])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]")
+            .replacingOccurrences(of: "<", with: "\\u003c")
+        let nonce = Self.nonce()
         return """
             <!doctype html>
             <html><head><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src sqasset:; script-src 'unsafe-inline' \(marked.url.absoluteString); style-src 'unsafe-inline'">
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src sqasset:; script-src 'nonce-\(nonce)'; style-src 'unsafe-inline'">
             <style>\(css)</style>
-            <script>\(marked.source)</script>
+            <script nonce="\(nonce)">\(marked)</script>
             </head><body><article id="content"></article>
-            <script>document.getElementById("content").innerHTML = marked.parse(\(json)[0]);</script>
+            <script nonce="\(nonce)">document.getElementById("content").innerHTML = marked.parse(\(json)[0]);</script>
             </body></html>
             """
+    }
+
+    private static func nonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 16)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) != errSecSuccess {
+            bytes = (0..<16).map { _ in UInt8.random(in: .min ... .max) }
+        }
+        return Data(bytes).base64EncodedString()
     }
 
     private static let css = """

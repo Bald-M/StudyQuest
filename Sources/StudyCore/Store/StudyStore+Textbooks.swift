@@ -139,13 +139,13 @@ extension StudyStore {
     }
 
     public func setLastRead(textbookId: Int64, sectionId: Int64) throws {
+        // 只读写需要的列：教材行里有整本 pdf
         try pool.write { db in
-            guard var book = try Textbook.fetchOne(db, key: textbookId) else { throw StoreError.notFound("教材 \(textbookId)") }
-            guard let section = try TextbookSection.fetchOne(db, key: sectionId), section.textbookId == textbookId else {
+            guard try Textbook.exists(db, key: textbookId) else { throw StoreError.notFound("教材 \(textbookId)") }
+            guard try Int64.fetchOne(db, sql: "SELECT textbookId FROM textbookSection WHERE id = ?", arguments: [sectionId]) == textbookId else {
                 throw StoreError.notFound("章节 \(sectionId)")
             }
-            book.lastSectionId = sectionId
-            try book.update(db)
+            try db.execute(sql: "UPDATE textbook SET lastSectionId = ? WHERE id = ?", arguments: [sectionId, textbookId])
         }
         notifier.post()
     }
@@ -291,9 +291,11 @@ extension StudyStore {
         let attempt = try pool.write { db -> Attempt in
             guard let challenge = try SectionChallenge.fetchOne(db, key: challengeId) else { throw StoreError.notFound("闯关 \(challengeId)") }
             guard !challenge.stale else { throw StoreError.invalid("本节内容已更新，请重新闯关") }
-            guard let section = try TextbookSection.fetchOne(db, key: challenge.sectionId),
-                  let book = try Textbook.fetchOne(db, key: section.textbookId) else { throw StoreError.notFound("章节 \(challenge.sectionId)") }
-            guard let stage = try Stage.fetchOne(db, key: book.stageIndex) else { throw StoreError.notFound("阶段 \(book.stageIndex)") }
+            // 不读教材行的 pdf，只取阶段号
+            guard let stageIndex = try Int.fetchOne(db, sql: """
+                SELECT t.stageIndex FROM textbookSection s JOIN textbook t ON t.id = s.textbookId WHERE s.id = ?
+                """, arguments: [challenge.sectionId]) else { throw StoreError.notFound("章节 \(challenge.sectionId)") }
+            guard let stage = try Stage.fetchOne(db, key: stageIndex) else { throw StoreError.notFound("阶段 \(stageIndex)") }
             guard stage.status != .locked else { throw StoreError.blocked("该阶段尚未解锁，可以先阅读，解锁后再闯关") }
             if let open = try Attempt.filter(
                 Column("sectionChallengeId") == challengeId

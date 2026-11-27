@@ -69,6 +69,18 @@ private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pd
         #expect(throws: StoreError.self) { try store.setLastRead(textbookId: a, sectionId: sb) }
         try store.setLastRead(textbookId: b, sectionId: sb)
         #expect(try store.textbooks(stage: 0).first { $0.id == b }?.lastSectionId == sb)
+        #expect(throws: StoreError.notFound("教材 999")) { try store.setLastRead(textbookId: 999, sectionId: sb) }
+        #expect(throws: StoreError.notFound("章节 999")) { try store.setLastRead(textbookId: b, sectionId: 999) }
+    }
+
+    @Test func lastReadKeepsOtherColumns() throws {
+        let store = try makeStore()
+        let pdf = Data([7, 7, 7])
+        let id = try store.importTextbook(parsed(count: 2, kind: .pdf, pdf: pdf), stageIndex: 0, sourcePath: "/x.pdf")
+        let second = try #require(try store.sectionRows(textbookId: id).last?.section.id)
+        try store.setLastRead(textbookId: id, sectionId: second)
+        let book = try #require(try store.textbooks(stage: 0).first { $0.id == id })
+        #expect(book.lastSectionId == second && book.pdfData == pdf && book.title == "教材" && book.sourcePath == "/x.pdf")
     }
 
     @Test func deletedTextbookIsHiddenButOriginsRemain() throws {
