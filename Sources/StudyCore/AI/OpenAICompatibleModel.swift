@@ -20,8 +20,9 @@ public struct OpenAICompatibleModel: ChatModel {
         // 遇到这两种明确的参数错误就换写法重试，最多各一次，并按 baseURL+模型记住；其他错误照常抛出。
         while true {
             do {
-                let text = try await send(request, style: style)
-                Self.learned.withLock { $0[key] = style }
+                let used = style
+                let text = try await send(request, style: used)
+                Self.learned.withLock { $0[key] = used }
                 return text
             } catch AIError.http(400, let body) {
                 guard let next = style.adapted(toError: body) else { throw AIError.http(status: 400, body: body) }
