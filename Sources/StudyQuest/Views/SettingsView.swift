@@ -217,29 +217,26 @@ private struct MCPSection: View {
 
     var body: some View {
         Section("MCP 接入") {
-            LabeledContent("studyquest-mcp") {
-                Text(path).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-            }
             if !FileManager.default.fileExists(atPath: path) {
                 Text("该路径下没有找到 studyquest-mcp，请用 scripts/bundle-app.sh 打包后再配置。")
                     .foregroundStyle(.secondary)
             }
-            connectRow("Claude Code", detail: "claude mcp add -s user") {
+            connectRow("Claude Code") {
                 try runShell("claude mcp remove -s user studyquest >/dev/null 2>&1; claude mcp add -s user studyquest -- \(shellQuoted(path))")
                 return "已连接，新开的 Claude Code 会话可用。"
             }
-            connectRow("Codex", detail: "codex mcp add") {
+            connectRow("Codex") {
                 try runShell("codex mcp remove studyquest >/dev/null 2>&1; codex mcp add studyquest -- \(shellQuoted(path))")
                 return "已连接，新开的 Codex 会话可用。"
             }
-            connectRow("DeepSeek Harness", detail: "~/.dsh/cordis.patch.yml") {
+            connectRow("DeepSeek Harness") {
                 try connectDeepSeekHarness()
                 return "已写入配置，重启 DeepSeek Harness 后生效。"
             }
         }
     }
 
-    private func connectRow(_ title: String, detail: String, action: @escaping @Sendable () throws -> String) -> some View {
+    private func connectRow(_ title: String, action: @escaping @Sendable () throws -> String) -> some View {
         LabeledContent {
             HStack {
                 if let result = results[title] {
@@ -261,7 +258,6 @@ private struct MCPSection: View {
             }
         } label: {
             Text(title)
-            Text(detail).font(.system(.caption, design: .monospaced))
         }
     }
 
