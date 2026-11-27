@@ -1,0 +1,33 @@
+import StudyCore
+import SwiftUI
+
+/// 题目或卡片的教材出处：可用时点击在阅读器里打开对应的节，教材或章节被删后只显示灰字。
+struct OriginLink: View {
+    let model: AppModel
+    let sectionId: Int64?
+
+    @Environment(\.openWindow) private var openWindow
+    @State private var origin: SectionOrigin?
+
+    var body: some View {
+        Group {
+            if let origin {
+                switch origin.availability {
+                case .available:
+                    Button("出自《\(origin.textbookTitle)》\(origin.sectionTitle)") {
+                        openWindow(value: ReaderRoute(textbookId: origin.textbookId, sectionId: origin.sectionId))
+                    }
+                    .buttonStyle(.link)
+                case .sectionRemoved:
+                    Text("出自《\(origin.textbookTitle)》（原章节已删除）").foregroundStyle(.secondary)
+                case .textbookDeleted:
+                    Text("原教材已删除").foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.caption)
+        .task(id: "\(sectionId ?? -1)-\(model.revision)") {
+            origin = sectionId.flatMap { try? model.store.origin(sectionId: $0) }
+        }
+    }
+}

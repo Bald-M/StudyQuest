@@ -194,6 +194,7 @@ struct ResultView: View {
                     }
                 }
                 Text(item.problem.prompt).textSelection(.enabled)
+                OriginLink(model: model, sectionId: item.problem.sectionId)
                 labeled("你的答案", item.answer.flatMap { $0.isEmpty ? nil : $0 } ?? "（未作答）", mono: item.problem.kind == .coding)
                 if let grade {
                     if !grade.feedback.isEmpty { labeled("反馈", grade.feedback) }

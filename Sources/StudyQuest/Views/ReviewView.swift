@@ -50,6 +50,7 @@ struct ReviewView: View {
                         .frame(maxWidth: .infinity)
                 }
                 Text(flipped ? "" : "点击或按空格翻面").font(.caption).foregroundStyle(.tertiary)
+                if flipped { OriginLink(model: model, sectionId: card.sectionId) }
             }
             .padding(24)
             .frame(maxWidth: 560, minHeight: 220, maxHeight: 320)
