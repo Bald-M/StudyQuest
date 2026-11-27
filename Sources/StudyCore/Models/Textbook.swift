@@ -11,15 +11,23 @@ public struct Textbook: Codable, FetchableRecord, MutablePersistableRecord, Iden
     public var title: String
     public var sourceKind: TextbookSourceKind
     public var sourcePath: String
-    public var pdfData: Data?
     /// 项目二用，本项目始终为 nil。
     public var language: String?
     public var lastSectionId: Int64?
     public var importedAt: Date
     public var deletedAt: Date?
-    public init(id: Int64? = nil, stageIndex: Int, title: String, sourceKind: TextbookSourceKind, sourcePath: String, pdfData: Data? = nil, language: String? = nil, lastSectionId: Int64? = nil, importedAt: Date, deletedAt: Date? = nil) { self.id = id; self.stageIndex = stageIndex; self.title = title; self.sourceKind = sourceKind; self.sourcePath = sourcePath; self.pdfData = pdfData; self.language = language; self.lastSectionId = lastSectionId; self.importedAt = importedAt; self.deletedAt = deletedAt }
+    public init(id: Int64? = nil, stageIndex: Int, title: String, sourceKind: TextbookSourceKind, sourcePath: String, language: String? = nil, lastSectionId: Int64? = nil, importedAt: Date, deletedAt: Date? = nil) { self.id = id; self.stageIndex = stageIndex; self.title = title; self.sourceKind = sourceKind; self.sourcePath = sourcePath; self.language = language; self.lastSectionId = lastSectionId; self.importedAt = importedAt; self.deletedAt = deletedAt }
     public static let databaseTableName = "textbook"
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
+}
+
+/// pdf 教材的原文件。单独一张表：教材行常被改小字段（阅读位置、删除标记、标题），
+/// 和几十 MB 的 BLOB 放在同一行时，SQLite 每次都要连 BLOB 一起重写。
+public struct TextbookPdf: Codable, FetchableRecord, PersistableRecord, Equatable, Sendable {
+    public var textbookId: Int64
+    public var data: Data
+    public init(textbookId: Int64, data: Data) { self.textbookId = textbookId; self.data = data }
+    public static let databaseTableName = "textbookPdf"
 }
 
 public struct TextbookSection: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {

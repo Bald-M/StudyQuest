@@ -126,7 +126,7 @@ private func allSections(_ store: StudyStore, _ id: Int64) throws -> [TextbookSe
         #expect(try store.asset(textbookId: md, ref: "new.png") == Data([2]))
         let pdf = try store.importTextbook(book([sec("a")], kind: .pdf, pdf: Data([1])), stageIndex: 0, sourcePath: "")
         try store.applySync(textbookId: pdf, parsed: book([sec("a")], kind: .pdf, pdf: Data([7, 7])))
-        #expect(try store.textbooks(stage: 0).first { $0.id == pdf }?.pdfData == Data([7, 7]))
+        #expect(try store.pdfData(textbookId: pdf) == Data([7, 7]))
         #expect(throws: StoreError.invalid("没有可导入的内容")) { try store.applySync(textbookId: md, parsed: book([])) }
         #expect(throws: StoreError.invalid("没有可导入的内容")) { _ = try store.syncPreview(textbookId: md, parsed: book([])) }
         #expect(throws: StoreError.notFound("教材 999")) { _ = try store.syncPreview(textbookId: 999, parsed: book([sec("a")])) }
