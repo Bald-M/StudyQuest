@@ -49,14 +49,18 @@ extension StudyStore {
         } > 0
     }
 
-    /// 有"复习清零"或"作业完成"经验记录的日期。
+    /// 清空复习、完成作业的日子，以及章节闯关判卷的日子。
     public func studyDays() throws -> Set<Day> {
-        let raws = try pool.read {
-            try String.fetchAll(
-                $0, sql: "SELECT DISTINCT day FROM xpEvent WHERE reason IN (?, ?)",
-                arguments: [XPReason.reviewCleared.rawValue, XPReason.assignmentCompleted.rawValue])
+        let calendar = clock.calendar
+        let (raws, sectionGraded) = try pool.read { db in
+            (try String.fetchAll(
+                db, sql: "SELECT DISTINCT day FROM xpEvent WHERE reason IN (?, ?)",
+                arguments: [XPReason.reviewCleared.rawValue, XPReason.assignmentCompleted.rawValue]),
+             try Date.fetchAll(
+                db, sql: "SELECT gradedAt FROM attempt WHERE kind = ? AND gradedAt IS NOT NULL",
+                arguments: [AttemptKind.section.rawValue]))
         }
-        return Set(raws.compactMap { Day(rawValue: $0) })
+        return Set(raws.compactMap { Day(rawValue: $0) }).union(sectionGraded.map { Day.of($0, calendar: calendar) })
     }
 
     public func progressSummary() throws -> ProgressSummary {

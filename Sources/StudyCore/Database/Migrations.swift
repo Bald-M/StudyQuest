@@ -184,6 +184,56 @@ enum Migrations {
                 t.column("effort", .text)
             }
         }
+        m.registerMigration("v2") { db in
+            try db.create(table: "textbook") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("stageIndex", .integer).notNull()
+                t.column("title", .text).notNull()
+                t.column("sourceKind", .text).notNull()
+                t.column("sourcePath", .text).notNull()
+                t.column("pdfData", .blob)
+                t.column("language", .text)
+                t.column("lastSectionId", .integer)
+                t.column("importedAt", .datetime).notNull()
+                t.column("deletedAt", .datetime)
+            }
+            try db.create(table: "textbookSection") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("textbookId", .integer).notNull().indexed().references("textbook", onDelete: .cascade)
+                t.column("matchKey", .text).notNull()
+                t.column("chapterTitle", .text).notNull()
+                t.column("title", .text).notNull()
+                t.column("order", .integer).notNull()
+                t.column("moduleId", .integer)
+                t.column("text", .text).notNull()
+                t.column("textHash", .text).notNull()
+                t.column("pageStart", .integer)
+                t.column("pageEnd", .integer)
+                t.column("masteredAt", .datetime)
+                t.column("removedAt", .datetime)
+                t.column("codeLevelsEnabled", .boolean).notNull().defaults(to: true)
+            }
+            try db.create(table: "textbookAsset") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("textbookId", .integer).notNull().references("textbook", onDelete: .cascade)
+                t.column("ref", .text).notNull()
+                t.column("data", .blob).notNull()
+                t.uniqueKey(["textbookId", "ref"])
+            }
+            try db.create(table: "sectionChallenge") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("sectionId", .integer).notNull().indexed().references("textbookSection", onDelete: .cascade)
+                t.column("problemIds", .text).notNull()
+                t.column("stale", .boolean).notNull().defaults(to: false)
+                t.column("createdAt", .datetime).notNull()
+                t.column("source", .text).notNull()
+            }
+            try db.alter(table: "problem") { $0.add(column: "sectionId", .integer) }
+            try db.alter(table: "card") { $0.add(column: "sectionId", .integer) }
+            try db.create(index: "problem_sectionId", on: "problem", columns: ["sectionId"])
+            try db.create(index: "card_sectionId", on: "card", columns: ["sectionId"])
+            try db.alter(table: "attempt") { $0.add(column: "sectionChallengeId", .integer) }
+        }
         return m
     }
 }

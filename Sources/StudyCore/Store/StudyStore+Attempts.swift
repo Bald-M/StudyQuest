@@ -280,7 +280,7 @@ extension StudyStore {
         }
     }
 
-    /// 作答包含的题目 id：作业的题、试卷各分区的题、错题重做的那一道题。
+    /// 作答包含的题目 id：作业的题、试卷各分区的题、错题重做的那一道题、章节闯关的题。
     private static func problemIds(_ db: Database, of attempt: Attempt) throws -> [Int64] {
         switch attempt.kind {
         case .assignment:
@@ -296,6 +296,11 @@ extension StudyStore {
                 throw StoreError.notFound("错题 \(attempt.mistakeId ?? 0)")
             }
             return [mistake.problemId]
+        case .section:
+            guard let id = attempt.sectionChallengeId, let challenge = try SectionChallenge.fetchOne(db, key: id) else {
+                throw StoreError.notFound("闯关 \(attempt.sectionChallengeId ?? 0)")
+            }
+            return challenge.problemIds
         }
     }
 
@@ -356,26 +361,41 @@ extension StudyStore {
         let isFirstFinalize = attempt.status == .submitted
         let sections = try sectionScores(db, attempt: attempt, problems: problems, latest: latest)
 
-        // 1. 总分与过关：阶段考试用阶段过关线与分区最低线，周测只看总分 75，作业与错题重做不判过关
+        // 1. 总分与过关：阶段考试用阶段过关线与分区最低线，周测只看总分 75，
+        //    章节闯关用本节教材所属阶段的过关线、不设分区最低线，作业与错题重做不判过关
         let exam = try attempt.examId.flatMap { try Exam.fetchOne(db, key: $0) }
         let stage = try exam.flatMap { try Stage.fetchOne(db, key: $0.stageIndex) }
-        switch exam?.kind {
-        case .stageExam?:
-            let outcome = GateEvaluator.evaluate(sections: sections, passLine: stage!.passLine, minSectionRatio: stage!.minSectionRatio)
+        var section: TextbookSection?
+        if attempt.kind == .section {
+            guard let id = attempt.sectionChallengeId, let challenge = try SectionChallenge.fetchOne(db, key: id),
+                  let found = try TextbookSection.fetchOne(db, key: challenge.sectionId),
+                  let book = try textbook(db, id: found.textbookId),
+                  let sectionStage = try Stage.fetchOne(db, key: book.stageIndex) else {
+                throw StoreError.notFound("闯关 \(attempt.sectionChallengeId ?? 0)")
+            }
+            section = found
+            let outcome = GateEvaluator.evaluate(sections: sections, passLine: sectionStage.passLine, minSectionRatio: 0)
             attempt.totalPercent = outcome.totalPercent
             attempt.passed = outcome.passed
-        case .weeklyQuiz?:
-            let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: 0)
-            attempt.totalPercent = outcome.totalPercent
-            attempt.passed = outcome.passed
-        case nil:
-            attempt.totalPercent = GateEvaluator.evaluate(sections: sections, passLine: 0, minSectionRatio: 0).totalPercent
-            attempt.passed = nil
+        } else {
+            switch exam?.kind {
+            case .stageExam?:
+                let outcome = GateEvaluator.evaluate(sections: sections, passLine: stage!.passLine, minSectionRatio: stage!.minSectionRatio)
+                attempt.totalPercent = outcome.totalPercent
+                attempt.passed = outcome.passed
+            case .weeklyQuiz?:
+                let outcome = GateEvaluator.evaluate(sections: sections, passLine: 75, minSectionRatio: 0)
+                attempt.totalPercent = outcome.totalPercent
+                attempt.passed = outcome.passed
+            case nil:
+                attempt.totalPercent = GateEvaluator.evaluate(sections: sections, passLine: 0, minSectionRatio: 0).totalPercent
+                attempt.passed = nil
+            }
         }
 
         // 2. 错题
         switch attempt.kind {
-        case .assignment, .exam:
+        case .assignment, .exam, .section:
             for problem in problems where !ReviewScheduler.isCorrect(score: latest[problem.id!]!.score, max: problem.maxScore) {
                 // 已有未毕业错题，或本次作答已为该题建过错题（重复结算）时跳过
                 let exists = try Mistake.filter(
@@ -406,10 +426,19 @@ extension StudyStore {
         // 3. 经验（去重键保证只给一次）与作业完成、阶段解锁
         // 题目经验按题算、每题只给一次：重做、错题重做、换一份作业再做同一题都不再给。
         // 得 0 经验时不记录，免得占掉这道题的名额，之后做对仍能拿到。
-        for problem in problems {
+        // 章节闯关不按题给经验：过关且本节此前未掌握时，记掌握并一次性给各题经验之和。
+        for problem in problems where attempt.kind != .section {
             let amount = XPRules.problemXP(difficulty: problem.difficulty, score: latest[problem.id!]!.score, max: problem.maxScore)
             guard amount > 0 else { continue }
             try insertXP(db, dedupKey: "problem:\(problem.id!)", amount: amount, reason: .problem, day: today, now: now)
+        }
+        if var section, attempt.passed == true, section.masteredAt == nil {
+            section.masteredAt = now
+            try section.update(db)
+            let amount = problems.reduce(0) {
+                $0 + XPRules.problemXP(difficulty: $1.difficulty, score: latest[$1.id!]!.score, max: $1.maxScore)
+            }
+            try insertXP(db, dedupKey: "section:\(section.id!)", amount: amount, reason: .sectionMastered, day: today, now: now)
         }
         var relearnStage: Int?
         if attempt.kind == .assignment, let id = attempt.assignmentId, var assignment = try Assignment.fetchOne(db, key: id) {

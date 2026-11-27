@@ -42,6 +42,13 @@ struct ReviewView: View {
     }
 
     private func cardFace(_ card: Card) -> some View {
+        VStack(spacing: 8) {
+            flipButton(card)
+            if flipped { OriginLink(model: model, sectionId: card.sectionId) }
+        }
+    }
+
+    private func flipButton(_ card: Card) -> some View {
         Button { flipped.toggle() } label: {
             VStack(spacing: 12) {
                 Text(flipped ? "答案" : "问题").font(.caption).foregroundStyle(.secondary)

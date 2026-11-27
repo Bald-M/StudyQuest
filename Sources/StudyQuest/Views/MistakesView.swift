@@ -47,6 +47,7 @@ struct MistakesView: View {
                 Text("连续答对 \(item.mistake.streak) 次")
             }
             .font(.caption).foregroundStyle(.secondary)
+            if let problem = item.problem { OriginLink(model: model, sectionId: problem.sectionId) }
             if let message = messages[id] {
                 Text(message).font(.caption).foregroundStyle(.red)
             }

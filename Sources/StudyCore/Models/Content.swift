@@ -11,7 +11,8 @@ public struct Card: Codable, FetchableRecord, MutablePersistableRecord, Identifi
     public var step: Int?
     public var dueDay: Day
     public var createdAt: Date
-    public init(id: Int64? = nil, stageIndex: Int, moduleId: Int64? = nil, front: String, back: String, tags: [String], step: Int? = nil, dueDay: Day, createdAt: Date) { self.id = id; self.stageIndex = stageIndex; self.moduleId = moduleId; self.front = front; self.back = back; self.tags = tags; self.step = step; self.dueDay = dueDay; self.createdAt = createdAt }
+    public var sectionId: Int64?
+    public init(id: Int64? = nil, stageIndex: Int, moduleId: Int64? = nil, front: String, back: String, tags: [String], step: Int? = nil, dueDay: Day, createdAt: Date, sectionId: Int64? = nil) { self.id = id; self.stageIndex = stageIndex; self.moduleId = moduleId; self.front = front; self.back = back; self.tags = tags; self.step = step; self.dueDay = dueDay; self.createdAt = createdAt; self.sectionId = sectionId }
     public static let databaseTableName = "card"
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }
@@ -45,7 +46,8 @@ public struct Problem: Codable, FetchableRecord, MutablePersistableRecord, Ident
     public var tags: [String]
     public var source: String
     public var createdAt: Date
-    public init(id: Int64? = nil, stageIndex: Int, moduleId: Int64? = nil, kind: ProblemKind, prompt: String, options: [String], referenceAnswer: String, rubric: String, maxScore: Double, difficulty: Difficulty, tags: [String], source: String, createdAt: Date) { self.id = id; self.stageIndex = stageIndex; self.moduleId = moduleId; self.kind = kind; self.prompt = prompt; self.options = options; self.referenceAnswer = referenceAnswer; self.rubric = rubric; self.maxScore = maxScore; self.difficulty = difficulty; self.tags = tags; self.source = source; self.createdAt = createdAt }
+    public var sectionId: Int64?
+    public init(id: Int64? = nil, stageIndex: Int, moduleId: Int64? = nil, kind: ProblemKind, prompt: String, options: [String], referenceAnswer: String, rubric: String, maxScore: Double, difficulty: Difficulty, tags: [String], source: String, createdAt: Date, sectionId: Int64? = nil) { self.id = id; self.stageIndex = stageIndex; self.moduleId = moduleId; self.kind = kind; self.prompt = prompt; self.options = options; self.referenceAnswer = referenceAnswer; self.rubric = rubric; self.maxScore = maxScore; self.difficulty = difficulty; self.tags = tags; self.source = source; self.createdAt = createdAt; self.sectionId = sectionId }
     public static let databaseTableName = "problem"
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

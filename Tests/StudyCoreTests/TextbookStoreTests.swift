@@ -1,0 +1,213 @@
+import Foundation
+import GRDB
+import Testing
+@testable import StudyCore
+
+private let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+
+private func makeStore() throws -> StudyStore {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("studyquest-test-\(UUID().uuidString)")
+    return try StudyStore(database: AppDatabase(url: dir.appendingPathComponent("test.sqlite")), clock: FixedClock(t0), notifier: NoopChangeNotifier())
+}
+
+private func parsed(count: Int = 3, kind: TextbookSourceKind = .markdownFile, pdf: Data? = nil, assets: [String: Data] = [:]) -> ParsedTextbook {
+    ParsedTextbook(title: "教材", sourceKind: kind,
+                   sections: (0..<count).map { ParsedSection(matchKey: "k\($0)", chapterTitle: "章", title: "节\($0)", text: "正文\($0)") },
+                   assets: assets, pdfData: pdf)
+}
+
+/// 记录写连接上整行读取 textbook（会带出整本 pdf）的语句。只装在写连接上：读连接是池里任取的，无法稳定跟踪。
+final class FullTextbookReads: @unchecked Sendable {
+    private let lock = NSLock()
+    private var statements: [String] = []
+    var all: [String] { lock.withLock { statements } }
+
+    init(_ store: StudyStore) throws {
+        let pattern = try NSRegularExpression(pattern: #"^SELECT (?!EXISTS).*(\*|pdfData).* FROM "?textbook"?(\s|$)"#)
+        try store.pool.writeWithoutTransaction { db in
+            db.trace { [self] event in
+                let sql = "\(event)"
+                if pattern.firstMatch(in: sql, range: NSRange(sql.startIndex..., in: sql)) != nil { lock.withLock { statements.append(sql) } }
+            }
+        }
+        // 自检：整行读取确实会被记下
+        _ = try store.pool.write { try Textbook.fetchOne($0, key: 0) }
+        #expect(all.count == 1)
+        lock.withLock { statements = [] }
+    }
+}
+
+@Suite struct TextbookStoreTests {
+    @Test func importStoresEverything() throws {
+        let store = try makeStore()
+        let img = Data([1, 2, 3])
+        let pdf = Data([9, 9])
+        let id = try store.importTextbook(parsed(kind: .pdf, pdf: pdf, assets: ["a/b.png": img]), stageIndex: 0, sourcePath: "/x.pdf")
+        let rows = try store.sectionRows(textbookId: id)
+        #expect(rows.map(\.section.title) == ["节0", "节1", "节2"])
+        #expect(rows.map(\.section.order) == [0, 1, 2])
+        #expect(rows[1].section.textHash == SectionText.hash("正文1"))
+        #expect(try store.asset(textbookId: id, ref: "a/b.png") == img)
+        #expect(try store.asset(textbookId: id, ref: "nope") == nil)
+        let book = try #require(try store.textbooks(stage: 0).first)
+        #expect(book.pdfData == pdf)
+        #expect(book.sourcePath == "/x.pdf")
+        #expect(throws: StoreError.notFound("阶段 99")) { try store.importTextbook(parsed(), stageIndex: 99, sourcePath: "") }
+        #expect(throws: StoreError.invalid("没有可导入的内容")) { try store.importTextbook(parsed(count: 0), stageIndex: 0, sourcePath: "") }
+    }
+
+    @Test func stateDerivesFromPreviousMastered() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(), stageIndex: 0, sourcePath: "")
+        #expect(try store.sectionRows(textbookId: id).map(\.state) == [.unlocked, .locked, .locked])
+        let first = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        try store.pool.write { try $0.execute(sql: "UPDATE textbookSection SET masteredAt = ? WHERE id = ?", arguments: [t0, first]) }
+        #expect(try store.sectionRows(textbookId: id).map(\.state) == [.mastered, .unlocked, .locked])
+    }
+
+    @Test func moduleMappingDoesNotTouchModuleStatus() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        let module = try #require(try store.modules(stage: 0).first)
+        let mid = try #require(module.id)
+        try store.setSectionModules([sid: mid])
+        #expect(try store.module(id: mid).status == module.status)
+        let counts = try store.masteredCount(moduleId: mid)
+        #expect(counts.mastered == 0 && counts.total == 1)
+        let other = try #require(try store.modules(stage: 1).first?.id)
+        #expect(throws: StoreError.invalid("模块不属于该阶段")) { try store.setSectionModules([sid: other]) }
+        #expect(throws: StoreError.notFound("章节 9999")) { try store.setSectionModules([9999: mid]) }
+        try store.setSectionModules([sid: nil])
+        #expect(try store.section(id: sid).moduleId == nil)
+    }
+
+    @Test func lastReadOnlyAcceptsOwnSection() throws {
+        let store = try makeStore()
+        let a = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let b = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let sb = try #require(try store.sectionRows(textbookId: b).first?.section.id)
+        #expect(throws: StoreError.self) { try store.setLastRead(textbookId: a, sectionId: sb) }
+        try store.setLastRead(textbookId: b, sectionId: sb)
+        #expect(try store.textbooks(stage: 0).first { $0.id == b }?.lastSectionId == sb)
+        #expect(throws: StoreError.notFound("教材 999")) { try store.setLastRead(textbookId: 999, sectionId: sb) }
+        #expect(throws: StoreError.notFound("章节 999")) { try store.setLastRead(textbookId: b, sectionId: 999) }
+    }
+
+    @Test func lastReadKeepsOtherColumns() throws {
+        let store = try makeStore()
+        let pdf = Data([7, 7, 7])
+        let id = try store.importTextbook(parsed(count: 2, kind: .pdf, pdf: pdf), stageIndex: 0, sourcePath: "/x.pdf")
+        let second = try #require(try store.sectionRows(textbookId: id).last?.section.id)
+        try store.setLastRead(textbookId: id, sectionId: second)
+        let book = try #require(try store.textbooks(stage: 0).first { $0.id == id })
+        #expect(book.lastSectionId == second && book.pdfData == pdf && book.title == "教材" && book.sourcePath == "/x.pdf")
+    }
+
+    @Test func deletedTextbookIsHiddenButOriginsRemain() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        try store.pool.write { db in
+            var p = Problem(stageIndex: 0, kind: .shortAnswer, prompt: "q", options: [], referenceAnswer: "a", rubric: "r", maxScore: 1, difficulty: .medium, tags: [], source: "t", createdAt: t0, sectionId: sid)
+            try p.insert(db)
+        }
+        #expect(try store.origin(sectionId: sid)?.availability == .available)
+        try store.deleteTextbook(id: id)
+        #expect(try store.textbooks(stage: 0).isEmpty)
+        let origin = try #require(try store.origin(sectionId: sid))
+        #expect(origin.availability == .textbookDeleted)
+        #expect(origin.textbookTitle == "教材" && origin.sectionTitle == "节0")
+        #expect(try store.pool.read { try Problem.filter(Column("sectionId") == sid).fetchCount($0) } == 1)
+        #expect(try store.origin(sectionId: 12345) == nil)
+        #expect(try store.masteredCount(moduleId: 1).total == 0)
+    }
+
+    @Test func deleteKeepsPdfDataAndSetsDeletedAt() throws {
+        let store = try makeStore()
+        let pdf = Data([5, 6, 7])
+        let id = try store.importTextbook(parsed(count: 1, kind: .pdf, pdf: pdf), stageIndex: 0, sourcePath: "/x.pdf")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        #expect(try store.origin(sectionId: sid)?.availability == .available)
+        try store.deleteTextbook(id: id)
+        #expect(try store.textbook(id: id)?.deletedAt == t0)
+        #expect(try store.pdfData(textbookId: id) == pdf)
+        #expect(try store.origin(sectionId: sid)?.availability == .textbookDeleted)
+        #expect(throws: StoreError.notFound("教材 999")) { try store.deleteTextbook(id: 999) }
+    }
+
+    /// 这些写路径只读需要的列，不带出 pdfData。
+    @Test func hotPathsDoNotReadPdfData() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 2, kind: .pdf, pdf: Data([1])), stageIndex: 0, sourcePath: "/x.pdf")
+        let sids = try store.sectionRows(textbookId: id).map { $0.section.id! }
+        let reads = try FullTextbookReads(store)
+        let module = try #require(try store.modules(stage: 0).first?.id)
+        try store.setSectionModules([sids[0]: module, sids[1]: nil])
+        #expect(try store.section(id: sids[0]).moduleId == module)
+        #expect(throws: StoreError.invalid("模块不属于该阶段")) { try store.setSectionModules([sids[0]: try #require(try store.modules(stage: 1).first?.id)]) }
+        try store.setLastRead(textbookId: id, sectionId: sids[1])
+        #expect(try store.textbook(id: id)?.lastSectionId == sids[1])
+        #expect(try store.origin(sectionId: sids[0])?.textbookTitle == "教材")
+        try store.deleteTextbook(id: id)
+        #expect(try store.origin(sectionId: sids[0])?.availability == .textbookDeleted)
+        #expect(reads.all.isEmpty, "\(reads.all)")
+    }
+
+    @Test func summariesCountVisibleSectionsOfLiveTextbooks() throws {
+        let store = try makeStore()
+        let a = try store.importTextbook(parsed(count: 3, kind: .pdf, pdf: Data([1])), stageIndex: 0, sourcePath: "/a.pdf")
+        let b = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/b.md")
+        let gone = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "/c.md")
+        _ = try store.importTextbook(parsed(count: 1), stageIndex: 1, sourcePath: "/d.md")
+        let ids = try store.sectionRows(textbookId: a).map { $0.section.id! }
+        try store.pool.write { db in
+            try db.execute(sql: "UPDATE textbookSection SET masteredAt = ? WHERE id IN (?, ?)", arguments: [t0, ids[0], ids[2]])
+            try db.execute(sql: "UPDATE textbookSection SET removedAt = ? WHERE id = ?", arguments: [t0, ids[2]])
+        }
+        try store.deleteTextbook(id: gone)
+        let summaries = try store.textbookSummaries(stage: 0)
+        #expect(summaries.map(\.id) == [a, b])
+        #expect(summaries[0].mastered == 1 && summaries[0].total == 2)
+        #expect(summaries[0].sourceKind == .pdf && summaries[0].sourcePath == "/a.pdf" && summaries[0].title == "教材")
+        #expect(summaries[1].mastered == 0 && summaries[1].total == 2)
+    }
+
+    @Test func applySyncUpdatesSourcePathOnlyWhenProvided() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 2), stageIndex: 0, sourcePath: "/old.md")
+        try store.applySync(textbookId: id, parsed: parsed(count: 2))
+        #expect(try store.textbookSummaries(stage: 0).first?.sourcePath == "/old.md")
+        try store.applySync(textbookId: id, parsed: parsed(count: 3), sourcePath: "/new.md")
+        let summary = try #require(try store.textbookSummaries(stage: 0).first)
+        #expect(summary.sourcePath == "/new.md" && summary.total == 3)
+    }
+}
+
+@Suite struct TextbookReaderQueryTests {
+    @Test func readerQueries() throws {
+        let store = try makeStore()
+        let pdf = Data([9, 9])
+        let id = try store.importTextbook(parsed(kind: .pdf, pdf: pdf, assets: ["b.png": Data([1]), "a/c.png": Data([2])]), stageIndex: 0, sourcePath: "/x.pdf")
+        let book = try #require(try store.textbook(id: id))
+        #expect(book.title == "教材" && book.sourceKind == .pdf && book.stageIndex == 0 && book.pdfData == nil && book.deletedAt == nil)
+        #expect(try store.pdfData(textbookId: id) == pdf)
+        #expect(try store.assetRefs(textbookId: id) == ["a/c.png", "b.png"])
+        #expect(try store.textbook(id: 999) == nil)
+        try store.deleteTextbook(id: id)
+        #expect(try store.textbook(id: id)?.deletedAt != nil)
+    }
+
+    @Test func sectionForChallenge() throws {
+        let store = try makeStore()
+        let id = try store.importTextbook(parsed(count: 1), stageIndex: 0, sourcePath: "")
+        let sid = try #require(try store.sectionRows(textbookId: id).first?.section.id)
+        let challenge = try store.pool.write { db -> Int64 in
+            var c = SectionChallenge(sectionId: sid, problemIds: [], createdAt: t0, source: "test")
+            try c.insert(db)
+            return c.id!
+        }
+        #expect(try store.section(challengeId: challenge)?.id == sid)
+        #expect(try store.section(challengeId: 999) == nil)
+    }
+}

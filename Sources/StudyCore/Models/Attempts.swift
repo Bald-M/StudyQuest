@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public enum AttemptKind: String, Codable, DatabaseValueConvertible, Sendable { case assignment, exam, mistakeRedo }
+public enum AttemptKind: String, Codable, DatabaseValueConvertible, Sendable { case assignment, exam, mistakeRedo, section }
 public enum AttemptStatus: String, Codable, DatabaseValueConvertible, Sendable { case inProgress, submitted, graded }
 
 public struct Attempt: Codable, FetchableRecord, MutablePersistableRecord, Identifiable, Equatable, Sendable {
@@ -18,7 +18,8 @@ public struct Attempt: Codable, FetchableRecord, MutablePersistableRecord, Ident
     public var totalPercent: Double?
     public var passed: Bool?
     public var reflection: String?
-    public init(id: Int64? = nil, kind: AttemptKind, assignmentId: Int64? = nil, examId: Int64? = nil, mistakeId: Int64? = nil, status: AttemptStatus, startedAt: Date, deadline: Date? = nil, submittedAt: Date? = nil, gradedAt: Date? = nil, totalPercent: Double? = nil, passed: Bool? = nil, reflection: String? = nil) { self.id = id; self.kind = kind; self.assignmentId = assignmentId; self.examId = examId; self.mistakeId = mistakeId; self.status = status; self.startedAt = startedAt; self.deadline = deadline; self.submittedAt = submittedAt; self.gradedAt = gradedAt; self.totalPercent = totalPercent; self.passed = passed; self.reflection = reflection }
+    public var sectionChallengeId: Int64?
+    public init(id: Int64? = nil, kind: AttemptKind, assignmentId: Int64? = nil, examId: Int64? = nil, mistakeId: Int64? = nil, status: AttemptStatus, startedAt: Date, deadline: Date? = nil, submittedAt: Date? = nil, gradedAt: Date? = nil, totalPercent: Double? = nil, passed: Bool? = nil, reflection: String? = nil, sectionChallengeId: Int64? = nil) { self.id = id; self.kind = kind; self.assignmentId = assignmentId; self.examId = examId; self.mistakeId = mistakeId; self.status = status; self.startedAt = startedAt; self.deadline = deadline; self.submittedAt = submittedAt; self.gradedAt = gradedAt; self.totalPercent = totalPercent; self.passed = passed; self.reflection = reflection; self.sectionChallengeId = sectionChallengeId }
     public static let databaseTableName = "attempt"
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
 }

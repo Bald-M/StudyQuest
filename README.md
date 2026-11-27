@@ -64,3 +64,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Changes are recorded in [CHANGELOG.md](C
 ## License
 
 [GPL-3.0](LICENSE)
+
+### Third-party licenses
+
+- [marked](https://github.com/markedjs/marked) v15.0.12 (`Resources/Web/marked.min.js`), MIT — see [Resources/Web/LICENSE-marked.txt](Resources/Web/LICENSE-marked.txt).

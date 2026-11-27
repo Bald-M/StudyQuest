@@ -59,6 +59,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     var gradingFailures: [Int64: String] = [:]
     /// 每次 refresh 加一；页面据此重读自己的数据。
     var revision = 0
+    /// 出处链接要跳到的节（教材 id → 节 id）；该教材的阅读器窗口读到后清除。
+    var pendingReaderSection: [Int64: Int64] = [:]
 
     /// 最近一次自动生成的结果；当天有数据库记录时以记录为准。
     private var lastAutoGen: AutoGenStatus = .done
@@ -74,6 +76,7 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     @ObservationIgnored lazy var grading = GradingService(store: store, model: { [registry] in try registry.model(for: .grading) })
     @ObservationIgnored lazy var generation = GenerationService(store: store, model: { [registry] in try registry.model(for: .generation) })
     @ObservationIgnored lazy var tutor = TutorService(store: store, model: { [registry] in try registry.model(for: .generation) })
+    @ObservationIgnored lazy var sectionChallenges = SectionChallengeService(store: store, model: { [registry] in try registry.model(for: .generation) })
     @ObservationIgnored lazy var autoGenerator = AutoGenerator(
         store: store, generation: generation, isConfigured: { [registry] in registry.isConfigured(.generation) })
 
@@ -183,6 +186,11 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         var id: Int64 { mistake.id ?? 0 }
     }
 
+    /// 题目或卡片的教材出处；没有 sectionId 或读取失败时为 nil。
+    func origin(sectionId: Int64?) -> SectionOrigin? {
+        sectionId.flatMap { try? store.origin(sectionId: $0) }
+    }
+
     func mistakeRows() throws -> [MistakeRow] {
         let mistakes = try store.mistakes(includeGraduated: false)
         let problems = Dictionary(uniqueKeysWithValues: try store.problems(ids: mistakes.map(\.problemId)).compactMap { p in p.id.map { ($0, p) } })
@@ -290,13 +298,18 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
         var modules: [Module]
         var gate: StageGateStatus
         var exams: [StageExamRow]
+        /// 各模块挂上的章节掌握数（模块 id → 已掌握 / 总数）。
+        var sectionCounts: [Int64: (mastered: Int, total: Int)]
     }
 
     func stageDetail(_ index: Int) throws -> StageDetail {
         let gate = try store.stageGateStatus(stage: index)  // 会同步 needsRelearn，须先于读模块
         let exams = try store.exams(stage: index).filter { $0.kind == .stageExam }
             .reversed().map { StageExamRow(exam: $0, attempts: try store.attempts(examId: $0.id, status: nil)) }
-        return StageDetail(stage: try store.stage(index), modules: try store.modules(stage: index), gate: gate, exams: exams)
+        let modules = try store.modules(stage: index)
+        var sectionCounts: [Int64: (mastered: Int, total: Int)] = [:]
+        for id in modules.compactMap(\.id) { sectionCounts[id] = try store.masteredCount(moduleId: id) }
+        return StageDetail(stage: try store.stage(index), modules: modules, gate: gate, exams: exams, sectionCounts: sectionCounts)
     }
 
     func setModuleStatus(id: Int64, _ status: ModuleStatus) throws {
@@ -317,6 +330,145 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
     func generateStageExam(stage: Int) async throws {
         _ = try await generation.generateStageExam(stage: stage)
         refresh()
+    }
+
+    // MARK: 教材
+
+    func textbookRows(stage: Int) throws -> [TextbookSummary] { try store.textbookSummaries(stage: stage) }
+
+    func modules(stage: Int) throws -> [Module] { try store.modules(stage: stage) }
+
+    /// 文件夹按 Markdown 文件夹读，`.pdf` 按 pdf，`.md`/`.markdown` 按单个 Markdown 文件。
+    nonisolated static func sourceKind(of url: URL) throws -> TextbookSourceKind {
+        if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true { return .markdownFolder }
+        switch url.pathExtension.lowercased() {
+        case "pdf": return .pdf
+        case "md", "markdown": return .markdownFile
+        default: throw StoreError.invalid("只支持 .md、.pdf 文件或 Markdown 文件夹")
+        }
+    }
+
+    nonisolated static func readTextbook(at url: URL, kind: TextbookSourceKind) throws -> ParsedTextbook {
+        switch kind {
+        case .markdownFile: try MarkdownTextbookReader.read(file: url)
+        case .markdownFolder: try MarkdownTextbookReader.read(folder: url)
+        case .pdf: try PDFTextbookReader.read(file: url)
+        }
+    }
+
+    /// 在后台线程解析，避免大 pdf 卡住界面。
+    func parseTextbook(at url: URL) async throws -> ParsedTextbook {
+        try await Task.detached { try Self.readTextbook(at: url, kind: try Self.sourceKind(of: url)) }.value
+    }
+
+    /// 写入可能有几十 MB 的 pdf，放到后台线程。
+    func importTextbook(_ parsed: ParsedTextbook, stage: Int, sourcePath: String) async throws -> Int64 {
+        let store = store
+        let id = try await Task.detached { try store.importTextbook(parsed, stageIndex: stage, sourcePath: sourcePath) }.value
+        refresh()
+        return id
+    }
+
+    func sectionRows(textbookId: Int64) async throws -> [SectionRow] {
+        let store = store
+        return try await Task.detached { try store.sectionRows(textbookId: textbookId) }.value
+    }
+
+    func suggestModules(textbookId: Int64) async throws -> [Int64: String?] {
+        try await sectionChallenges.suggestModules(textbookId: textbookId)
+    }
+
+    func saveModuleMapping(_ mapping: [Int64: Int64?]) throws {
+        try store.setSectionModules(mapping)
+        refresh()
+    }
+
+    /// 按教材原来的类型重新解析 `url`（默认是导入时的路径）并比对；路径不存在时抛 `StoreError.notFound("原文件")`。
+    func syncPreview(textbook: TextbookSummary, from url: URL? = nil) async throws -> (SyncPlan, ParsedTextbook) {
+        let source = url ?? URL(fileURLWithPath: textbook.sourcePath)
+        let store = store, id = textbook.id, kind = textbook.sourceKind
+        return try await Task.detached {
+            guard FileManager.default.fileExists(atPath: source.path) else { throw StoreError.notFound("原文件") }
+            let parsed = try Self.readTextbook(at: source, kind: kind)
+            return (try store.syncPreview(textbookId: id, parsed: parsed), parsed)
+        }.value
+    }
+
+    /// `sourcePath` 为重新选择的原文件位置；nil 表示沿用原路径。
+    func applySync(textbookId: Int64, parsed: ParsedTextbook, sourcePath: String? = nil) async throws {
+        let store = store
+        try await Task.detached { try store.applySync(textbookId: textbookId, parsed: parsed, sourcePath: sourcePath) }.value
+        refresh()
+    }
+
+    func deleteTextbook(id: Int64) throws {
+        try store.deleteTextbook(id: id)
+        refresh()
+    }
+
+    // MARK: 阅读器与章节闯关
+
+    /// 阅读器一次读取的内容：教材（不含 pdf 数据）、可见的节与阶段是否锁定。教材不存在或已删除时 `textbook` 为 nil。
+    struct ReaderSnapshot: Sendable {
+        var textbook: Textbook?
+        var rows: [SectionRow]
+        var stageLocked: Bool
+        var assetRefs: Set<String>
+    }
+
+    /// 大教材的正文可能很多，在后台线程读。
+    func readerSnapshot(textbookId: Int64) async throws -> ReaderSnapshot {
+        let store = store
+        return try await Task.detached {
+            guard let book = try store.textbook(id: textbookId), book.deletedAt == nil else {
+                return ReaderSnapshot(textbook: nil, rows: [], stageLocked: false, assetRefs: [])
+            }
+            return ReaderSnapshot(
+                textbook: book, rows: try store.sectionRows(textbookId: textbookId),
+                stageLocked: try store.stage(book.stageIndex).status == .locked,
+                assetRefs: book.sourceKind == .pdf ? [] : Set(try store.assetRefs(textbookId: textbookId)))
+        }.value
+    }
+
+    func pdfData(textbookId: Int64) async throws -> Data? {
+        let store = store
+        return try await Task.detached { try store.pdfData(textbookId: textbookId) }.value
+    }
+
+    func setLastRead(textbookId: Int64, sectionId: Int64) {
+        try? store.setLastRead(textbookId: textbookId, sectionId: sectionId)
+    }
+
+    /// 阶段锁定时直接拒绝，不调用 AI；否则取（或生成）本节闯关并开始作答。
+    func prepareSectionChallenge(sectionId: Int64) async throws -> (attemptId: Int64, truncated: Bool) {
+        let section = try store.section(id: sectionId)
+        if let book = try store.textbook(id: section.textbookId), try store.stage(book.stageIndex).status == .locked {
+            throw StoreError.blocked(Self.stageLockedMessage)
+        }
+        let prepared = try await sectionChallenges.prepareChallenge(sectionId: sectionId)
+        let attempt = try store.startSectionChallenge(challengeId: prepared.challengeId)
+        refresh()
+        return (attempt.id!, prepared.truncated)
+    }
+
+    /// 与 `startSectionChallenge` 拒绝时的说明一致。
+    static let stageLockedMessage = "该阶段尚未解锁，可以先阅读，解锁后再闯关"
+
+    /// 章节闯关结果页的一句话。
+    enum SectionOutcome: Equatable {
+        case mastered
+        case failed(passLine: Double)
+        case practice
+    }
+
+    /// 本节在这次作答开始前已掌握即为练习模式；否则过关即本次掌握，未过关给出过关线。
+    func sectionOutcome(attempt: Attempt) throws -> SectionOutcome? {
+        guard attempt.kind == .section, let passed = attempt.passed, let challengeId = attempt.sectionChallengeId,
+              let section = try store.section(challengeId: challengeId) else { return nil }
+        if let masteredAt = section.masteredAt, masteredAt < attempt.startedAt { return .practice }
+        if passed { return .mastered }
+        guard let book = try store.textbook(id: section.textbookId) else { return nil }
+        return .failed(passLine: try store.stage(book.stageIndex).passLine)
     }
 
     // MARK: 考试与结果

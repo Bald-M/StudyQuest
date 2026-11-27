@@ -29,6 +29,13 @@ struct StudyQuestApp: App {
             }
             .frame(minWidth: 820, minHeight: 560)
         }
+        WindowGroup("教材", for: ReaderRoute.self) { $route in
+            if let model, let route {
+                ReaderView(model: model, route: route)
+            }
+        }
+        // 不在「文件 > 新建」里出现：阅读器窗口只能从教材或出处链接打开
+        .commandsRemoved()
     }
 }
 

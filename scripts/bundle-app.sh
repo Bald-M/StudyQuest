@@ -14,6 +14,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/StudyQuest" "$APP/Contents/MacOS/StudyQuest"
 cp "$BIN_DIR/studyquest-mcp" "$APP/Contents/MacOS/studyquest-mcp"
 cp "assets/branding/StudyQuest.icns" "$APP/Contents/Resources/StudyQuest.icns"
+cp -R Resources/Web "$APP/Contents/Resources/Web"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

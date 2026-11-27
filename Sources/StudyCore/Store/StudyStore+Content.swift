@@ -250,25 +250,26 @@ extension StudyStore {
 
     // MARK: 内部
 
-    private func catalog() throws -> ([Stage], [Module]) {
+    func catalog() throws -> ([Stage], [Module]) {
         let stages = try self.stages()
         return (stages, try stages.flatMap { try modules(stage: $0.index) })
     }
 
-    private static func require(_ errors: [String]) throws {
+    static func require(_ errors: [String]) throws {
         if !errors.isEmpty { throw StoreError.invalid(errors.joined(separator: "；")) }
     }
 
-    private static func moduleId(_ key: String?, in modules: [Module]) -> Int64? {
+    static func moduleId(_ key: String?, in modules: [Module]) -> Int64? {
         key.flatMap { key in modules.first { $0.key == key }?.id }
     }
 
-    private static func insertProblems(_ inputs: [ProblemInput], source: String, modules: [Module], now: Date, db: Database) throws -> [Int64] {
+    static func insertProblems(_ inputs: [ProblemInput], source: String, modules: [Module], now: Date, sectionId: Int64? = nil,
+                               db: Database) throws -> [Int64] {
         try inputs.map { input in
             var problem = Problem(
                 stageIndex: input.stageIndex, moduleId: moduleId(input.moduleKey, in: modules), kind: input.kind,
                 prompt: input.prompt, options: input.options ?? [], referenceAnswer: input.referenceAnswer, rubric: input.rubric,
-                maxScore: input.maxScore, difficulty: input.difficulty, tags: input.tags ?? [], source: source, createdAt: now)
+                maxScore: input.maxScore, difficulty: input.difficulty, tags: input.tags ?? [], source: source, createdAt: now, sectionId: sectionId)
             try problem.insert(db)
             return problem.id!
         }

@@ -30,6 +30,34 @@ private func cardCount(_ url: URL) throws -> Int {
         #expect(stages == 10)
     }
 
+    @Test func exportKeepsTextbooksAssetsAndPdf() throws {
+        let dir = makeTempDir()
+        let database = try AppDatabase(url: dir.appendingPathComponent("studyquest.sqlite"))
+        let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+        let image = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+        let pdf = Data("%PDF-1.4 fake".utf8)
+        let md = try store.importTextbook(
+            ParsedTextbook(title: "笔记", sourceKind: .markdownFolder,
+                           sections: [ParsedSection(matchKey: "a.md|a|甲#1", chapterTitle: "a", title: "甲", text: "![](img/x.png)")],
+                           assets: ["img/x.png": image]),
+            stageIndex: 0, sourcePath: "/notes")
+        let book = try store.importTextbook(
+            ParsedTextbook(title: "课本", sourceKind: .pdf,
+                           sections: [ParsedSection(matchKey: "|第 1–1 页#1", chapterTitle: "课本", title: "第 1–1 页", text: "正文", pageStart: 0, pageEnd: 0)],
+                           pdfData: pdf),
+            stageIndex: 1, sourcePath: "/book.pdf")
+        let backup = dir.appendingPathComponent("backup.sqlite")
+        try BackupService.export(database: database, to: backup)
+
+        let copy = try makeStore(at: backup)
+        #expect(try copy.textbookSummaries(stage: 0).map(\.title) == ["笔记"])
+        #expect(try copy.textbookSummaries(stage: 1).map(\.title) == ["课本"])
+        #expect(try copy.sectionRows(textbookId: md).map(\.section.title) == ["甲"])
+        #expect(try copy.sectionRows(textbookId: book).map(\.section.pageEnd) == [0])
+        #expect(try copy.asset(textbookId: md, ref: "img/x.png") == image)
+        #expect(try copy.pdfData(textbookId: book) == pdf)
+    }
+
     @Test func restoreReplacesOnNextLaunch() throws {
         let dir = makeTempDir()
         let dbURL = dir.appendingPathComponent("studyquest.sqlite")
