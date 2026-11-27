@@ -10,6 +10,15 @@ struct OriginLink: View {
     @State private var origin: SectionOrigin?
 
     var body: some View {
+        if sectionId != nil {
+            // 读到出处前也要占一个视图：内容为空时 SwiftUI 不会触发下面的 `.task`，出处就永远读不出来
+            content.task(id: "\(sectionId ?? -1)-\(model.revision)") {
+                origin = model.origin(sectionId: sectionId)
+            }
+        }
+    }
+
+    private var content: some View {
         Group {
             if let origin {
                 switch origin.availability {
@@ -25,11 +34,10 @@ struct OriginLink: View {
                 case .textbookDeleted:
                     Text("原教材已删除").foregroundStyle(.secondary)
                 }
+            } else {
+                Color.clear.frame(width: 0, height: 0)
             }
         }
         .font(.caption)
-        .task(id: "\(sectionId ?? -1)-\(model.revision)") {
-            origin = model.origin(sectionId: sectionId)
-        }
     }
 }

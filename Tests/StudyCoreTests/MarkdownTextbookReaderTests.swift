@@ -112,6 +112,19 @@ private func write(_ text: String, to url: URL) throws {
         #expect(book.sections[0].text.contains("![](img/a.png)"))
     }
 
+    /// Windows 上 Typora 写出的反斜杠路径、文件名带空格的图片也要导入。
+    @Test func resolvesBackslashAndSpacedImagePaths() throws {
+        let dir = try makeTempDir()
+        try write("# 章\n![](images\\two dimensional table.png)\n![图](images/data model.png \"标题\")", to: dir.appendingPathComponent("m.md"))
+        try FileManager.default.createDirectory(at: dir.appendingPathComponent("images"), withIntermediateDirectories: true)
+        try Data([3]).write(to: dir.appendingPathComponent("images/two dimensional table.png"))
+        try Data([4]).write(to: dir.appendingPathComponent("images/data model.png"))
+        let book = try MarkdownTextbookReader.read(file: dir.appendingPathComponent("m.md"))
+        #expect(book.assets["images/two dimensional table.png"] == Data([3]))
+        #expect(book.assets["images/data model.png"] == Data([4]))
+        #expect(book.warnings.isEmpty)
+    }
+
     @Test func gb18030FileIsDecoded() throws {
         let dir = try makeTempDir()
         let file = dir.appendingPathComponent("g.md")

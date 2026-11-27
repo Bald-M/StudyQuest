@@ -12,9 +12,7 @@ public enum MarkdownAssetLinks {
         let whole = NSRange(location: 0, length: ns.length)
         var replacements: [(NSRange, String)] = []
         for m in MarkdownTextbookReader.standardImageRegex.matches(in: text, range: whole) {
-            var raw = ns.substring(with: m.range(at: 1))
-            if raw.hasPrefix("<") && raw.hasSuffix(">") { raw = String(raw.dropFirst().dropLast()) }
-            let ref = normalize(raw.removingPercentEncoding ?? raw, relativeTo: documentPath)
+            let ref = normalize(MarkdownTextbookReader.imagePath(ns.substring(with: m.range(at: 1))), relativeTo: documentPath)
             guard let ref, assetRefs.contains(ref) else { continue }
             replacements.append((m.range(at: 1), url(textbookId: textbookId, ref: ref)))
         }

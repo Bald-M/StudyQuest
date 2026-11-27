@@ -40,8 +40,17 @@ public enum MarkdownTextbookReader {
 
     private struct ImageRef { var ref: String; var isWiki: Bool }
 
-    /// `![alt](路径)`：第 1 组是路径（可带尖括号）。阅读器改写图片链接时共用。
-    static let standardImageRegex = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\s*\)"#)
+    /// `![alt](路径)`：第 1 组是路径（可带尖括号）。路径允许含空格（Typora、Obsidian 都这样写），
+    /// 可选的 `"标题"` 前须有空白。阅读器改写图片链接时共用。
+    static let standardImageRegex = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\(\s*(<[^>]+>|[^)"]+?)(?:\s+"[^"]*")?\s*\)"#)
+
+    /// 图片路径统一成 `/` 分隔：Windows 上写的笔记常是 `images\a.png`。
+    static func imagePath(_ raw: String) -> String {
+        var path = raw
+        if path.hasPrefix("<") && path.hasSuffix(">") { path = String(path.dropFirst().dropLast()) }
+        path = path.removingPercentEncoding ?? path
+        return path.replacingOccurrences(of: "\\", with: "/")
+    }
     /// `![[文件名|尺寸]]`：第 1 组是文件名。
     static let wikiImageRegex = try! NSRegularExpression(pattern: #"!\[\[([^\]\|]+)(?:\|[^\]]*)?\]\]"#)
 
@@ -51,11 +60,10 @@ public enum MarkdownTextbookReader {
         let std = standardImageRegex, wiki = wikiImageRegex
         var found: [(Int, ImageRef)] = []
         for m in std.matches(in: text, range: whole) {
-            var raw = ns.substring(with: m.range(at: 1))
-            if raw.hasPrefix("<") && raw.hasSuffix(">") { raw = String(raw.dropFirst().dropLast()) }
-            let lower = raw.lowercased()
+            let path = imagePath(ns.substring(with: m.range(at: 1)))
+            let lower = path.lowercased()
             if lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("data:") { continue }
-            found.append((m.range.location, ImageRef(ref: raw.removingPercentEncoding ?? raw, isWiki: false)))
+            found.append((m.range.location, ImageRef(ref: path, isWiki: false)))
         }
         for m in wiki.matches(in: text, range: whole) {
             found.append((m.range.location, ImageRef(ref: ns.substring(with: m.range(at: 1)).trimmingCharacters(in: .whitespaces), isWiki: true)))

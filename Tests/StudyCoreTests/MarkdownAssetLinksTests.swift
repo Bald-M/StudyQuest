@@ -11,6 +11,12 @@ import Testing
         #expect(out == "前文 ![甲](sqasset://7/ch1%2Fimg%2Fa%20b.png \"t\") 和 ![乙](sqasset://7/ch1%2Fimg%2Fa%20b.png) 以及 ![丙](sqasset://7/img%2F%E5%9B%BE.jpg)")
     }
 
+    @Test func rewritesBackslashAndSpacedPaths() {
+        let text = "![](img\\a b.png) ![x](img/a b.png \"t\")"
+        let out = MarkdownAssetLinks.rewrite(text, documentPath: "ch1/intro.md", assetRefs: refs, textbookId: 7)
+        #expect(out == "![](sqasset://7/ch1%2Fimg%2Fa%20b.png) ![x](sqasset://7/ch1%2Fimg%2Fa%20b.png \"t\")")
+    }
+
     @Test func rewritesWikiEmbedsByFileName() {
         let text = "![[pic.png|300]]\n![[img/图.jpg]]"
         let out = MarkdownAssetLinks.rewrite(text, documentPath: "book.md", assetRefs: refs, textbookId: 2)
