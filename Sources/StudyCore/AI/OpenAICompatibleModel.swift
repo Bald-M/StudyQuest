@@ -26,6 +26,8 @@ public struct OpenAICompatibleModel: ChatModel {
             } catch AIError.http(400, let body) {
                 guard let next = style.adapted(toError: body) else { throw AIError.http(status: 400, body: body) }
                 style = next
+                // 服务端已明确指出不支持，马上记住，后续调用即使因别的原因失败也不再重复试错
+                Self.learned.withLock { $0[key] = next }
             }
         }
     }
@@ -38,11 +40,12 @@ public struct OpenAICompatibleModel: ChatModel {
         func adapted(toError body: String) -> ParamStyle? {
             guard let data = body.data(using: .utf8),
                   let error = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? [String: Any],
-                  let param = error["param"] as? String else { return nil }
+                  let param = error["param"] as? String, let code = error["code"] as? String else { return nil }
             var next = self
-            switch param {
-            case "max_tokens" where !completionTokens: next.completionTokens = true
-            case "temperature" where temperature: next.temperature = false
+            // 同时看 code：旧模型的“max_tokens 太大”等错误也带 param，但不是“不支持”，不能换写法
+            switch (param, code) {
+            case ("max_tokens", "unsupported_parameter") where !completionTokens: next.completionTokens = true
+            case ("temperature", "unsupported_value") where temperature: next.temperature = false
             default: return nil
             }
             return next

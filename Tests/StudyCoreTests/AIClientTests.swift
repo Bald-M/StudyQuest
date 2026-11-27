@@ -82,6 +82,7 @@ private func makeStore() throws -> (StudyStore, URL) {
         #expect(r.value(forHTTPHeaderField: "Authorization") == "Bearer k")
         let body = try jsonBody(r)
         #expect(body["temperature"] as? Double == 0)
+        #expect(body["max_tokens"] as? Int == 16000 && body["max_completion_tokens"] == nil)
         #expect((body["response_format"] as? [String: Any])?["type"] as? String == "json_object")
         let messages = try #require(body["messages"] as? [[String: Any]])
         #expect(messages.first?["role"] as? String == "system")
@@ -113,10 +114,13 @@ private func makeStore() throws -> (StudyStore, URL) {
     }
 
     @Test func openAIOtherBadRequestIsNotRetried() async throws {
-        let http = StubHTTPClient([Self.paramError("messages", code: "invalid_value")])
-        let model = OpenAICompatibleModel(baseURL: URL(string: "https://other.example.com/v1")!, model: "m2", apiKey: "k", http: http)
-        await #expect(throws: AIError.self) { try await model.complete(ChatRequest(system: "s", messages: [])) }
-        #expect(http.requests.count == 1)
+        // 参数名对得上但不是“不支持”（如旧模型的“max_tokens 太大”）也不换写法
+        for (param, code) in [("messages", "invalid_value"), ("max_tokens", "invalid_value")] {
+            let http = StubHTTPClient([Self.paramError(param, code: code)])
+            let model = OpenAICompatibleModel(baseURL: URL(string: "https://other.example.com/v1")!, model: "m2-\(param)", apiKey: "k", http: http)
+            await #expect(throws: AIError.self) { try await model.complete(ChatRequest(system: "s", messages: [])) }
+            #expect(http.requests.count == 1)
+        }
     }
 
     @Test func openAITruncated() async throws {
