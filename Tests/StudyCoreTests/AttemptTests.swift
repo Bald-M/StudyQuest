@@ -201,6 +201,46 @@ private func runStageNine(interviewScores: [Double]) throws -> (Attempt, Attempt
         #expect(try store.mistakes(includeGraduated: false).isEmpty)
     }
 
+    @Test func redoingSameProblemAwardsXPOnce() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let id = try store.createAssignment(
+            AssignmentInput(stageIndex: 0, moduleKey: nil, title: "作业", problemIds: nil, problems: [problem(prompt: "一")]),
+            source: "test")
+        try submitAndGrade(store, try store.startAssignment(id: id), scores: [5])
+        // 中等题 25 × 5/10 = 12.5 → 13，加作业完成 50
+        #expect(try store.totalXP() == 13 + 50)
+
+        // 错题重做答对：同一道题不再给题目经验
+        clock.current = t0.addingTimeInterval(oneDay)
+        let mistake = try #require(store.mistakes(includeGraduated: false).first)
+        try submitAndGrade(store, try store.startMistakeRedo(mistakeId: mistake.id!), scores: [10])
+        #expect(try store.totalXP() == 13 + 50)
+
+        // 同一道题出现在另一份作业里：只有作业完成的 50
+        let problemId = mistake.problemId
+        let second = try store.createAssignment(
+            AssignmentInput(stageIndex: 0, moduleKey: nil, title: "复用", problemIds: [problemId], problems: nil), source: "test")
+        try submitAndGrade(store, try store.startAssignment(id: second), scores: [10])
+        #expect(try store.totalXP() == 13 + 50 + 50)
+    }
+
+    @Test func zeroScoreDoesNotUseUpProblemXP() throws {
+        let clock = FixedClock(t0)
+        let store = try makeStore(clock: clock)
+        let id = try store.createAssignment(
+            AssignmentInput(stageIndex: 0, moduleKey: nil, title: "作业", problemIds: nil, problems: [problem(prompt: "一")]),
+            source: "test")
+        try submitAndGrade(store, try store.startAssignment(id: id), scores: [0])
+        #expect(try store.totalXP() == 50)
+
+        // 第一次 0 分没拿到经验，之后重做答对仍然可以拿到这道题的经验
+        clock.current = t0.addingTimeInterval(oneDay)
+        let mistake = try #require(store.mistakes(includeGraduated: false).first)
+        try submitAndGrade(store, try store.startMistakeRedo(mistakeId: mistake.id!), scores: [10])
+        #expect(try store.totalXP() == 50 + 25)
+    }
+
     @Test func regradeLatestWinsAndXPNotDoubled() throws {
         let clock = FixedClock(t0)
         let store = try makeStore(clock: clock)

@@ -404,10 +404,12 @@ extension StudyStore {
         }
 
         // 3. 经验（去重键保证只给一次）与作业完成、阶段解锁
+        // 题目经验按题算、每题只给一次：重做、错题重做、换一份作业再做同一题都不再给。
+        // 得 0 经验时不记录，免得占掉这道题的名额，之后做对仍能拿到。
         for problem in problems {
-            try insertXP(db, dedupKey: "problem:\(attemptId):\(problem.id!)",
-                         amount: XPRules.problemXP(difficulty: problem.difficulty, score: latest[problem.id!]!.score, max: problem.maxScore),
-                         reason: .problem, day: today, now: now)
+            let amount = XPRules.problemXP(difficulty: problem.difficulty, score: latest[problem.id!]!.score, max: problem.maxScore)
+            guard amount > 0 else { continue }
+            try insertXP(db, dedupKey: "problem:\(problem.id!)", amount: amount, reason: .problem, day: today, now: now)
         }
         var relearnStage: Int?
         if attempt.kind == .assignment, let id = attempt.assignmentId, var assignment = try Assignment.fetchOne(db, key: id) {
