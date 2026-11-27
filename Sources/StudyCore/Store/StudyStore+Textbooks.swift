@@ -21,11 +21,20 @@ public struct SectionOrigin: Equatable, Sendable {
 /// 教材列表一行：不含 pdf 数据与正文，阶段详情每次刷新都会读。
 public struct TextbookSummary: Identifiable, Equatable, Sendable {
     public var id: Int64
+    public var stageIndex: Int
     public var title: String
     public var sourceKind: TextbookSourceKind
     public var sourcePath: String
     public var mastered: Int
     public var total: Int
+}
+
+extension TextbookSummary {
+    /// 资料库搜索：查询去掉首尾空白后为空时全部匹配，否则按书名做不区分大小写的包含匹配。
+    public func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return q.isEmpty || title.localizedCaseInsensitiveContains(q)
+    }
 }
 
 extension StudyStore {
@@ -59,18 +68,19 @@ extension StudyStore {
     }
 
     /// 未删除教材及其未移除节的掌握数；不读正文。
-    public func textbookSummaries(stage: Int) throws -> [TextbookSummary] {
+    /// `stage` 为 nil 时返回所有阶段（资料库用），按阶段、导入时间排序。
+    public func textbookSummaries(stage: Int?) throws -> [TextbookSummary] {
         try pool.read { db in
             try Row.fetchAll(db, sql: """
-                SELECT t.id, t.title, t.sourceKind, t.sourcePath,
+                SELECT t.id, t.stageIndex, t.title, t.sourceKind, t.sourcePath,
                        COUNT(s.id) AS total, COUNT(s.masteredAt) AS mastered
                 FROM textbook t
                 LEFT JOIN textbookSection s ON s.textbookId = t.id AND s.removedAt IS NULL
-                WHERE t.stageIndex = ? AND t.deletedAt IS NULL
+                WHERE (? IS NULL OR t.stageIndex = ?) AND t.deletedAt IS NULL
                 GROUP BY t.id
-                ORDER BY t.importedAt, t.id
-                """, arguments: [stage]).map {
-                TextbookSummary(id: $0["id"], title: $0["title"], sourceKind: $0["sourceKind"], sourcePath: $0["sourcePath"], mastered: $0["mastered"], total: $0["total"])
+                ORDER BY t.stageIndex, t.importedAt, t.id
+                """, arguments: [stage, stage]).map {
+                TextbookSummary(id: $0["id"], stageIndex: $0["stageIndex"], title: $0["title"], sourceKind: $0["sourceKind"], sourcePath: $0["sourcePath"], mastered: $0["mastered"], total: $0["total"])
             }
         }
     }
