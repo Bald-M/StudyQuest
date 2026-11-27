@@ -158,6 +158,52 @@ private func cardCount(_ url: URL) throws -> Int {
         #expect(try cardCount(URL(fileURLWithPath: preRestore)) == original)
     }
 
+    /// 造出「上次恢复出错、原库只剩在 .pre-restore」的现场，返回原库里的卡片数。
+    private func makeOrphanedOriginal(at dbURL: URL) throws -> Int {
+        let original: Int
+        do {
+            let database = try AppDatabase(url: dbURL)
+            let store = try StudyStore(database: database, clock: SystemClock(), notifier: NoopChangeNotifier())
+            _ = try store.createCards([CardInput(stageIndex: 0, moduleKey: nil, front: "只在原库里", back: "b", tags: nil)], source: "test")
+            original = try database.pool.read { try Card.fetchCount($0) }
+            try database.pool.close()
+        }
+        let fm = FileManager.default
+        let preRestore = dbURL.path + ".pre-restore"
+        try fm.moveItem(atPath: dbURL.path, toPath: preRestore)
+        if fm.fileExists(atPath: dbURL.path + "-wal") {
+            try fm.moveItem(atPath: dbURL.path + "-wal", toPath: preRestore + "-wal")
+        }
+        // 留一个陈旧的 -shm，确认找回时会先清掉它
+        fm.createFile(atPath: dbURL.path + "-shm", contents: Data("stale".utf8))
+        return original
+    }
+
+    @Test func orphanedOriginalIsRecoveredWithoutPendingRestore() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let original = try makeOrphanedOriginal(at: dbURL)
+
+        #expect(throws: BackupError.self) { try BackupService.applyPendingRestore(at: dbURL) }
+
+        #expect(FileManager.default.fileExists(atPath: dbURL.path))
+        #expect(!FileManager.default.fileExists(atPath: dbURL.path + ".pre-restore"))
+        #expect(try cardCount(dbURL) == original)
+    }
+
+    @Test func orphanedOriginalIsRecoveredWhenPendingIsInvalid() throws {
+        let dir = makeTempDir()
+        let dbURL = dir.appendingPathComponent("studyquest.sqlite")
+        let original = try makeOrphanedOriginal(at: dbURL)
+        let pending = BackupService.pendingRestoreURL(for: dbURL)
+        try Data("not a database".utf8).write(to: pending)
+
+        #expect(throws: BackupError.self) { try BackupService.applyPendingRestore(at: dbURL) }
+
+        #expect(!FileManager.default.fileExists(atPath: pending.path))
+        #expect(try cardCount(dbURL) == original)
+    }
+
     @Test func corruptPendingRestoreKeepsLiveDB() throws {
         let dir = makeTempDir()
         let dbURL = dir.appendingPathComponent("studyquest.sqlite")

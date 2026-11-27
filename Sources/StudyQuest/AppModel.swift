@@ -86,6 +86,8 @@ enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
             try BackupService.applyPendingRestore(at: url)
         } catch BackupError.pendingRestoreInvalid(let reason) {
             restoreError = reason
+        } catch BackupError.recoveredOriginal(let reason) {
+            restoreError = reason
         } catch {
             restoreError = "从备份恢复失败，继续使用现有数据：\(error)"
         }

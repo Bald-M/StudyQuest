@@ -5,6 +5,8 @@ public enum BackupError: Error, Equatable {
     case invalidBackup(String)
     case destinationIsLiveDatabase
     case pendingRestoreInvalid(String)
+    /// 上次恢复中途出错，原库只剩在 .pre-restore 里；这次启动已把它放回原位。
+    case recoveredOriginal(String)
 }
 
 /// 整库 SQLite 副本的导出与恢复。恢复分两步：先把备份放到数据库旁边待命，下次启动、打开数据库之前再替换，
@@ -83,23 +85,36 @@ public enum BackupService {
     static func applyPendingRestore(at dbURL: URL, moveItem: (_ from: URL, _ to: URL) throws -> Void) throws {
         let pending = pendingRestoreURL(for: dbURL)
         let fm = FileManager.default
-        guard fm.fileExists(atPath: pending.path) else { return }
+        let preRestore = preRestoreURL(for: dbURL)
+        let preRestoreWAL = URL(fileURLWithPath: preRestore.path + "-wal")
+        let wal = URL(fileURLWithPath: dbURL.path + "-wal")
+
+        // 上次恢复如果中途出错、回滚也没成功，原库可能只剩在 .pre-restore 里。它是唯一的副本：
+        // 每次启动都先放回原位（不论有没有待恢复文件、待恢复文件是否可用），绝不能在下面清理旧 .pre-restore 时删掉。
+        var recovered = false
+        if !fm.fileExists(atPath: dbURL.path), fm.fileExists(atPath: preRestore.path) {
+            // 现库位置没有主库，留下的 -wal/-shm 不属于任何库，先清掉免得挡住移动或被错配
+            for path in [wal.path, dbURL.path + "-shm"] where fm.fileExists(atPath: path) {
+                try fm.removeItem(atPath: path)
+            }
+            try moveItem(preRestore, dbURL)
+            if fm.fileExists(atPath: preRestoreWAL.path) { try moveItem(preRestoreWAL, wal) }
+            recovered = true
+        }
+        let recoveredNote = "上次从备份恢复时中途出错，已把原来的数据放回原处。"
+
+        guard fm.fileExists(atPath: pending.path) else {
+            if recovered { throw BackupError.recoveredOriginal(recoveredNote) }
+            return
+        }
         do {
             try validate(backup: pending)
         } catch {
             try? fm.removeItem(at: pending)
-            throw BackupError.pendingRestoreInvalid("待恢复的备份无法使用，已丢弃，继续使用现有数据：\(error)")
+            let prefix = recovered ? recoveredNote : ""
+            throw BackupError.pendingRestoreInvalid("\(prefix)待恢复的备份无法使用，已丢弃，继续使用现有数据：\(error)")
         }
 
-        let preRestore = preRestoreURL(for: dbURL)
-        let preRestoreWAL = URL(fileURLWithPath: preRestore.path + "-wal")
-        let wal = URL(fileURLWithPath: dbURL.path + "-wal")
-        // 上次恢复如果中途出错、回滚也没成功，原库可能只剩在 .pre-restore 里。
-        // 这时它是唯一的副本，先放回原位，绝不能在下面清理旧 .pre-restore 时删掉。
-        if !fm.fileExists(atPath: dbURL.path), fm.fileExists(atPath: preRestore.path) {
-            try moveItem(preRestore, dbURL)
-            if fm.fileExists(atPath: preRestoreWAL.path) { try moveItem(preRestoreWAL, wal) }
-        }
         for path in [preRestore.path, preRestoreWAL.path, preRestore.path + "-shm"] where fm.fileExists(atPath: path) {
             try fm.removeItem(atPath: path)
         }
