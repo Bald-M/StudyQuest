@@ -117,6 +117,70 @@ extension StudyStore {
         }
     }
 
+    public func syncPreview(textbookId: Int64, parsed: ParsedTextbook) throws -> SyncPlan {
+        guard !parsed.sections.isEmpty else { throw StoreError.invalid("没有可导入的内容") }
+        return try pool.read { db in
+            guard let book = try Textbook.fetchOne(db, key: textbookId), book.deletedAt == nil else { throw StoreError.notFound("教材 \(textbookId)") }
+            let existing = try TextbookSection.filter(Column("textbookId") == textbookId).order(Column("order"), Column("id")).fetchAll(db)
+            return TextbookSync.plan(existing: existing, parsed: parsed.sections)
+        }
+    }
+
+    public func applySync(textbookId: Int64, parsed: ParsedTextbook) throws {
+        guard !parsed.sections.isEmpty else { throw StoreError.invalid("没有可导入的内容") }
+        let now = clock.now()
+        try pool.write { db in
+            guard var book = try Textbook.fetchOne(db, key: textbookId), book.deletedAt == nil else { throw StoreError.notFound("教材 \(textbookId)") }
+            let existing = try TextbookSection.filter(Column("textbookId") == textbookId).order(Column("order"), Column("id")).fetchAll(db)
+            let plan = TextbookSync.plan(existing: existing, parsed: parsed.sections)
+            var parsedByKey: [String: ParsedSection] = [:]
+            for s in parsed.sections where parsedByKey[s.matchKey] == nil { parsedByKey[s.matchKey] = s }
+            let changedIds = Set(plan.changed), removedIds = Set(plan.removed)
+            var idByKey: [String: Int64] = [:]
+            for var section in existing {
+                guard let id = section.id else { continue }
+                if removedIds.contains(id) {
+                    section.removedAt = now
+                } else if let new = parsedByKey[section.matchKey] {
+                    section.removedAt = nil
+                    section.chapterTitle = new.chapterTitle
+                    section.title = new.title
+                    section.pageStart = new.pageStart
+                    section.pageEnd = new.pageEnd
+                    if changedIds.contains(id) {
+                        section.text = new.text
+                        section.textHash = SectionText.hash(new.text)
+                        try db.execute(sql: "UPDATE sectionChallenge SET stale = 1 WHERE sectionId = ?", arguments: [id])
+                    }
+                    idByKey[section.matchKey] = id
+                }
+                try section.update(db)
+            }
+            for new in plan.added {
+                var section = TextbookSection(textbookId: textbookId, matchKey: new.matchKey, chapterTitle: new.chapterTitle, title: new.title, order: 0, text: new.text, textHash: SectionText.hash(new.text), pageStart: new.pageStart, pageEnd: new.pageEnd)
+                try section.insert(db)
+                idByKey[new.matchKey] = section.id!
+            }
+            for (index, key) in plan.newOrder.enumerated() {
+                guard let id = idByKey[key] else { continue }
+                try db.execute(sql: "UPDATE textbookSection SET \"order\" = ? WHERE id = ?", arguments: [index, id])
+            }
+            if parsed.sourceKind == .pdf {
+                book.pdfData = parsed.pdfData
+            } else {
+                try TextbookAsset.filter(Column("textbookId") == textbookId).deleteAll(db)
+                for (ref, data) in parsed.assets {
+                    var asset = TextbookAsset(textbookId: textbookId, ref: ref, data: data)
+                    try asset.insert(db)
+                }
+            }
+            book.title = parsed.title
+            if let last = book.lastSectionId, removedIds.contains(last) { book.lastSectionId = nil }
+            try book.update(db)
+        }
+        notifier.post()
+    }
+
     public func masteredCount(moduleId: Int64) throws -> (mastered: Int, total: Int) {
         try pool.read { db in
             let rows = try Row.fetchAll(db, sql: """
